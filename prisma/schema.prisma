@@ -1,0 +1,57 @@
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "sync"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  user
+  admin
+}
+
+enum VideoStatus {
+  pending
+  approved
+  rejected
+}
+
+model User {
+  id         String   @id @default(uuid())
+  username   String   @unique
+  email      String   @unique
+  password   String
+  role       Role     @default(user)
+  createdAt  DateTime @default(now())
+
+  videos     Video[]
+  sessions   Session[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Video {
+  id           String      @id @default(uuid())
+  originalName String
+  storedName   String      @unique
+  exercise     String
+  status       VideoStatus @default(pending)
+  adminNote    String?
+  uploadedAt   DateTime    @default(now())
+  reviewedAt   DateTime?
+
+  uploaderId   String
+  uploader     User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+}

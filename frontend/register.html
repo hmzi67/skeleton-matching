@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register — Pose Matcher</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
+    .logo { font-size:1.3rem; font-weight:800; background:linear-gradient(135deg,#6ee7f7,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; text-align:center; margin-bottom:24px; }
+    .card { width:100%; max-width:380px; }
+    .card h2 { font-size:1.4rem; font-weight:700; margin-bottom:4px; }
+    .card .sub { color:#64748b; font-size:0.88rem; margin-bottom:28px; }
+    .pw-wrap { position:relative; }
+    .pw-wrap input { padding-right:44px; }
+    .pw-toggle { position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:#475569; cursor:pointer; font-size:1rem; padding:4px; }
+    .footer-link { text-align:center; margin-top:20px; font-size:0.85rem; color:#475569; }
+    .footer-link a { color:#6ee7f7; text-decoration:none; }
+    .strength { height:4px; border-radius:99px; margin-top:6px; transition:width 0.3s, background 0.3s; width:0%; }
+  </style>
+</head>
+<body>
+  <div class="logo">Pose Matcher</div>
+
+  <div class="card">
+    <h2>Create account</h2>
+    <p class="sub">Join to start tracking your form</p>
+
+    <div class="alert alert-error"   id="errMsg"></div>
+    <div class="alert alert-success" id="okMsg"></div>
+
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" placeholder="choose a username" autocomplete="username" />
+    </div>
+
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@example.com" autocomplete="email" />
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <div class="pw-wrap">
+        <input type="password" id="password" placeholder="min 6 characters" autocomplete="new-password" />
+        <button class="pw-toggle" id="pwToggle" type="button">👁</button>
+      </div>
+      <div class="strength" id="strength"></div>
+    </div>
+
+    <button class="btn btn-primary btn-full" id="regBtn">Create Account</button>
+
+    <p class="footer-link">Already have an account? <a href="/login">Sign in</a></p>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/auth.js"></script>
+  <script>
+    if (Auth.isLoggedIn()) window.location.replace('/');
+
+    const pwToggle = document.getElementById('pwToggle');
+    const pwInput  = document.getElementById('password');
+    const strength = document.getElementById('strength');
+
+    pwToggle.addEventListener('click', () => {
+      const show = pwInput.type === 'password';
+      pwInput.type = show ? 'text' : 'password';
+      pwToggle.textContent = show ? '🙈' : '👁';
+    });
+
+    pwInput.addEventListener('input', () => {
+      const len = pwInput.value.length;
+      const pct = Math.min(len / 12 * 100, 100);
+      const color = len < 6 ? '#ef4444' : len < 10 ? '#fbbf24' : '#4ade80';
+      strength.style.width = pct + '%';
+      strength.style.background = color;
+    });
+
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
+    document.getElementById('regBtn').addEventListener('click', doRegister);
+
+    async function doRegister() {
+      const btn      = document.getElementById('regBtn');
+      const errMsg   = document.getElementById('errMsg');
+      const okMsg    = document.getElementById('okMsg');
+      const username = document.getElementById('username').value.trim();
+      const email    = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      errMsg.classList.remove('visible');
+      okMsg.classList.remove('visible');
+
+      if (!username || !email || !password) {
+        errMsg.textContent = 'All fields are required.';
+        errMsg.classList.add('visible');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+
+      try {
+        const res  = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errMsg.textContent = data.error || 'Registration failed.';
+          errMsg.classList.add('visible');
+          btn.disabled = false;
+          btn.textContent = 'Create Account';
+          return;
+        }
+
+        Auth.save(data.token, { username, role: 'user' });
+        window.location.href = '/';
+      } catch {
+        errMsg.textContent = 'Network error.';
+        errMsg.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# Videos
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Cached skeleton data
+*.json
+!package.json
+!pyproject.toml
+
+# Output directory
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+/src/generated/prisma
+
+# Environment — never commit secrets
+.env
+node_modules/

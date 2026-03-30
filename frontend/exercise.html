@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exercise — Pose Matcher</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+
+    .topbar {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 24px; border-bottom:1px solid #1e2130; flex-shrink:0;
+      flex-wrap:wrap; gap:10px;
+    }
+
+    .topbar-left { display:flex; align-items:center; gap:14px; }
+
+    .ex-title { font-size:1.05rem; font-weight:700; text-transform:capitalize; }
+
+    .cam-btn { padding:8px 20px; border-radius:8px; border:none; font-size:0.85rem; font-weight:600; cursor:pointer; transition:opacity 0.2s; }
+    .cam-btn.start { background:#166534; color:#86efac; }
+    .cam-btn.stop  { background:#7f1d1d; color:#fca5a5; }
+
+    .split { flex:1; display:grid; grid-template-columns:1fr 1fr; min-height:0; }
+
+    .panel { position:relative; background:#000; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+    .panel:first-child { border-right:2px solid #1e2130; }
+
+    .panel-label {
+      position:absolute; top:12px; left:12px; z-index:10;
+      background:rgba(15,17,23,0.8); backdrop-filter:blur(6px);
+      border:1px solid #2d3148; border-radius:8px;
+      padding:4px 12px; font-size:0.75rem; font-weight:700;
+      letter-spacing:0.06em; text-transform:uppercase; color:#94a3b8;
+    }
+
+    .panel-label.live { border-color:#22c55e; color:#4ade80; }
+    .panel-label.ref  { border-color:#6ee7f7; color:#6ee7f7; }
+
+    .live-dot { display:inline-block; width:7px; height:7px; background:#22c55e; border-radius:50%; margin-right:5px; animation:blink 1.2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    .panel video { width:100%; height:100%; object-fit:cover; display:block; }
+
+    .placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#334155; text-align:center; padding:20px; }
+    .placeholder .icon { font-size:3.5rem; }
+    .placeholder p { font-size:0.88rem; }
+
+    .cam-error { display:none; position:absolute; bottom:14px; left:50%; transform:translateX(-50%); background:#450a0a; border:1px solid #7f1d1d; color:#fca5a5; border-radius:8px; padding:10px 18px; font-size:0.85rem; z-index:20; white-space:nowrap; }
+    .cam-error.visible { display:block; }
+
+    @media (max-width:600px) {
+      .split { grid-template-columns:1fr; grid-template-rows:1fr 1fr; }
+      .panel:first-child { border-right:none; border-bottom:2px solid #1e2130; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-left">
+      <a href="/" class="btn btn-ghost" style="padding:6px 14px;font-size:0.85rem">← Back</a>
+      <span class="ex-title" id="exTitle">Exercise</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="navUser" style="font-size:0.85rem;color:#64748b"></span>
+      <button class="cam-btn start" id="camBtn">Start Camera</button>
+    </div>
+  </div>
+
+  <div class="split">
+    <!-- Live camera -->
+    <div class="panel">
+      <div class="panel-label live"><span class="live-dot"></span>Your Camera</div>
+      <div class="placeholder" id="camPlaceholder">
+        <div class="icon">📷</div>
+        <p>Press "Start Camera" to begin</p>
+      </div>
+      <video id="liveVideo" autoplay playsinline muted style="display:none"></video>
+      <div class="cam-error" id="camError">Camera access denied. Please allow camera permissions.</div>
+    </div>
+
+    <!-- Reference video -->
+    <div class="panel">
+      <div class="panel-label ref">Reference</div>
+      <div class="placeholder" id="refPlaceholder">
+        <div class="icon">🎬</div>
+        <p id="refPlaceholderText">Loading reference…</p>
+      </div>
+      <video id="refVideo" loop controls style="display:none"></video>
+    </div>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+    Auth.guard();
+
+    const params   = new URLSearchParams(location.search);
+    const exercise = params.get('exercise') || 'Exercise';
+    const refId    = params.get('ref');
+    const user     = Auth.getUser();
+
+    document.getElementById('exTitle').textContent = exercise.replace(/_/g, ' ');
+    document.getElementById('navUser').textContent = `👤 ${user.username}`;
+    document.title = `${exercise.replace(/_/g,' ')} — Pose Matcher`;
+
+    // Reference video — needs auth header; use blob URL trick
+    const refVideo       = document.getElementById('refVideo');
+    const refPlaceholder = document.getElementById('refPlaceholder');
+    const refPlaceholderText = document.getElementById('refPlaceholderText');
+
+    async function loadRefVideo() {
+      if (!refId) { refPlaceholderText.textContent = 'No approved reference for this exercise.'; return; }
+      try {
+        const res = await Auth.apiFetch(`/api/video/${refId}`);
+        if (!res.ok) throw new Error();
+        const blob = await res.blob();
+        refVideo.src = URL.createObjectURL(blob);
+        refVideo.style.display = 'block';
+        refPlaceholder.style.display = 'none';
+      } catch {
+        refPlaceholderText.textContent = 'Could not load reference video.';
+      }
+    }
+
+    loadRefVideo();
+
+    // Camera
+    const camBtn         = document.getElementById('camBtn');
+    const liveVideo      = document.getElementById('liveVideo');
+    const camPlaceholder = document.getElementById('camPlaceholder');
+    const camError       = document.getElementById('camError');
+    let stream = null;
+
+    camBtn.addEventListener('click', () => stream ? stopCamera() : startCamera());
+
+    async function startCamera() {
+      camError.classList.remove('visible');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'user', width:{ideal:1280}, height:{ideal:720} }, audio:false });
+        liveVideo.srcObject = stream;
+        liveVideo.style.display = 'block';
+        camPlaceholder.style.display = 'none';
+        camBtn.textContent = 'Stop Camera';
+        camBtn.className = 'cam-btn stop';
+        refVideo.play().catch(() => {});
+      } catch {
+        camError.classList.add('visible');
+      }
+    }
+
+    function stopCamera() {
+      stream?.getTracks().forEach(t => t.stop());
+      stream = null;
+      liveVideo.srcObject = null;
+      liveVideo.style.display = 'none';
+      camPlaceholder.style.display = 'flex';
+      camBtn.textContent = 'Start Camera';
+      camBtn.className = 'cam-btn start';
+      refVideo.pause();
+    }
+
+    window.addEventListener('beforeunload', stopCamera);
+  </script>
+</body>
+</html>

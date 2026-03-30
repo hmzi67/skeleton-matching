@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pose Matcher</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .hero { text-align:center; padding:60px 20px 44px; }
+    .hero h1 { font-size:clamp(2rem,5vw,3rem); font-weight:800; background:linear-gradient(135deg,#6ee7f7,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1.2; }
+    .hero p { color:#64748b; margin-top:14px; font-size:1rem; max-width:440px; margin-left:auto; margin-right:auto; }
+    .hero-actions { display:flex; gap:12px; justify-content:center; margin-top:24px; flex-wrap:wrap; }
+
+    .section-label { text-align:center; font-size:0.78rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#475569; margin-bottom:24px; }
+
+    .exercise-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:16px; }
+
+    .ex-card { background:#1e2130; border:1px solid #2d3148; border-radius:16px; padding:28px 18px 22px; text-align:center; cursor:pointer; transition:border-color 0.2s,transform 0.15s,box-shadow 0.2s; text-decoration:none; color:inherit; display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .ex-card:hover { border-color:#6ee7f7; transform:translateY(-3px); box-shadow:0 8px 28px rgba(110,231,247,0.08); }
+    .ex-card .ex-icon { font-size:2.4rem; line-height:1; }
+    .ex-card .ex-name { font-weight:700; font-size:0.98rem; text-transform:capitalize; }
+    .ex-card .ex-sub  { font-size:0.76rem; color:#475569; }
+
+    .ex-card.ghost { pointer-events:none; animation:pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+    .ex-card.ghost .ex-icon,.ex-card.ghost .ex-name,.ex-card.ghost .ex-sub { background:#2d3148; border-radius:6px; color:transparent; }
+
+    /* guest CTA banner */
+    .cta-banner { background:#1e2130; border:1px solid #2d3148; border-radius:14px; padding:20px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:32px; flex-wrap:wrap; }
+    .cta-banner p { color:#94a3b8; font-size:0.9rem; }
+    .cta-banner .cta-btns { display:flex; gap:10px; }
+  </style>
+</head>
+<body>
+
+  <nav id="navBar">
+    <!-- filled by auth.js or inline below for guests -->
+  </nav>
+
+  <div class="hero">
+    <h1>Train Smarter,<br>Move Better</h1>
+    <p>Pick an exercise and get real-time AI form feedback against a reference video.</p>
+    <div class="hero-actions" id="heroActions"></div>
+  </div>
+
+  <div class="page">
+    <div id="ctaBanner"></div>
+    <div class="section-label">Choose an exercise</div>
+    <div class="exercise-grid" id="exerciseGrid">
+      <div class="ex-card ghost"><div class="ex-icon">⬛</div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+      <div class="ex-card ghost"><div class="ex-icon">⬛</div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+      <div class="ex-card ghost"><div class="ex-icon">⬛</div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/auth.js"></script>
+  <script>
+    const ICONS = { squat:'🏋️', pushup:'💪', deadlift:'🔩', lunge:'🦵', shoulder_press:'🙌', default:'🤸' };
+    const DESC  = { squat:'Lower body strength', pushup:'Upper body & core', deadlift:'Full body power', lunge:'Balance & legs', shoulder_press:'Shoulder strength', default:'General exercise' };
+
+    const loggedIn = Auth.isLoggedIn();
+    const user     = Auth.getUser();
+
+    // Nav
+    const nav = document.getElementById('navBar');
+    if (loggedIn) {
+      nav.innerHTML = `
+        <a class="nav-logo" href="/">Pose Matcher</a>
+        <div class="nav-links">
+          ${user.role === 'admin'
+            ? `<a href="/admin">Admin Panel</a>`
+            : `<a href="/upload">Upload Video</a><a href="/dashboard">My Uploads</a>`}
+          <span class="nav-user">👤 ${user.username}</span>
+          <button class="nav-logout" onclick="Auth.logout()">Logout</button>
+        </div>`;
+    } else {
+      nav.innerHTML = `
+        <a class="nav-logo" href="/">Pose Matcher</a>
+        <div class="nav-links">
+          <a href="/login">Sign In</a>
+          <a href="/register" class="btn btn-primary" style="padding:7px 18px;font-size:0.85rem">Get Started</a>
+        </div>`;
+    }
+
+    // Guest CTA banner
+    if (!loggedIn) {
+      document.getElementById('ctaBanner').innerHTML = `
+        <div class="cta-banner">
+          <p>Sign in to upload your own reference videos and track your progress.</p>
+          <div class="cta-btns">
+            <a href="/login"    class="btn btn-ghost" style="padding:8px 18px;font-size:0.85rem">Sign In</a>
+            <a href="/register" class="btn btn-primary" style="padding:8px 18px;font-size:0.85rem">Register</a>
+          </div>
+        </div>`;
+    }
+
+    async function loadExercises() {
+      const grid = document.getElementById('exerciseGrid');
+      try {
+        const res       = await fetch('/api/exercises');
+        const exercises = await res.json();
+
+        if (exercises.length === 0) {
+          grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+            <div class="icon">📭</div>
+            <p>No approved exercises yet.<br>
+               ${loggedIn ? `<a href="/upload">Upload a reference video</a> for admin review.` : `<a href="/register">Register</a> to upload a reference video.`}
+            </p></div>`;
+          return;
+        }
+
+        grid.innerHTML = exercises.map(e => {
+          const name = e.exercise.replace(/_/g, ' ');
+          // Exercise page requires auth — redirect to login if guest
+          const href = loggedIn
+            ? `/exercise?exercise=${encodeURIComponent(e.exercise)}&ref=${e.video_id}`
+            : `/login`;
+          return `
+            <a class="ex-card" href="${href}">
+              <div class="ex-icon">${ICONS[e.exercise] || ICONS.default}</div>
+              <div class="ex-name">${name}</div>
+              <div class="ex-sub">${DESC[e.exercise] || 'Exercise'}</div>
+            </a>`;
+        }).join('');
+      } catch {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">⚠️</div><p>Could not connect to server.</p></div>`;
+      }
+    }
+
+    loadExercises();
+  </script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Uploads — Pose Matcher</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .upload-list { display:flex; flex-direction:column; gap:12px; }
+
+    .upload-item {
+      background:#1e2130;
+      border:1px solid #2d3148;
+      border-radius:12px;
+      padding:16px 20px;
+      display:flex;
+      align-items:center;
+      gap:16px;
+      flex-wrap:wrap;
+    }
+
+    .upload-item video {
+      width:96px;
+      height:64px;
+      object-fit:cover;
+      border-radius:8px;
+      background:#000;
+      flex-shrink:0;
+    }
+
+    .upload-info { flex:1; min-width:160px; }
+    .upload-name { font-weight:700; font-size:0.95rem; text-transform:capitalize; }
+    .upload-meta { font-size:0.78rem; color:#64748b; margin-top:4px; line-height:1.6; }
+    .upload-note { font-size:0.78rem; color:#94a3b8; font-style:italic; margin-top:4px; }
+
+    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+  </style>
+</head>
+<body>
+  <nav id="navBar"></nav>
+
+  <div class="page">
+    <div class="header-row">
+      <div>
+        <div class="page-title">My Uploads</div>
+        <p class="page-sub" style="margin-bottom:0">Track the status of your submitted reference videos.</p>
+      </div>
+      <a href="/upload" class="btn btn-primary">+ Upload New</a>
+    </div>
+
+    <div class="upload-list" id="uploadList">
+      <div class="empty"><div class="icon">⏳</div><p>Loading…</p></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/auth.js"></script>
+  <script>
+    Auth.guard();
+
+    const user = Auth.getUser();
+    document.getElementById('navBar').innerHTML = `
+      <a class="nav-logo" href="/">Pose Matcher</a>
+      <div class="nav-links">
+        <a href="/">Exercises</a>
+        <a href="/upload">Upload Video</a>
+        <span class="nav-user">👤 ${user.username}</span>
+        <button class="nav-logout" onclick="Auth.logout()">Logout</button>
+      </div>`;
+
+    async function load() {
+      const list = document.getElementById('uploadList');
+      try {
+        const res    = await Auth.apiFetch('/api/my-uploads');
+        const videos = await res.json();
+
+        if (videos.length === 0) {
+          list.innerHTML = `<div class="empty">
+            <div class="icon">📭</div>
+            <p>No uploads yet.<br><a href="/upload">Upload your first reference video</a></p>
+          </div>`;
+          return;
+        }
+
+        list.innerHTML = videos.slice().reverse().map(v => `
+          <div class="upload-item">
+            <video src="/api/video/${v.id}" preload="metadata" controls></video>
+            <div class="upload-info">
+              <div class="upload-name">${v.exercise.replace(/_/g,' ')}</div>
+              <div class="upload-meta">
+                ${v.original_name}<br>
+                Uploaded ${new Date(v.uploaded_at).toLocaleDateString()}
+                ${v.reviewed_at ? ` &bull; Reviewed ${new Date(v.reviewed_at).toLocaleDateString()}` : ''}
+              </div>
+              ${v.admin_note ? `<div class="upload-note">Admin note: ${v.admin_note}</div>` : ''}
+            </div>
+            <span class="badge badge-${v.status}">${v.status}</span>
+          </div>
+        `).join('');
+      } catch {
+        list.innerHTML = `<div class="empty"><div class="icon">⚠️</div><p>Could not load uploads.</p></div>`;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

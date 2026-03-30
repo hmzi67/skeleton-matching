@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — Pose Matcher</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+    .logo { font-size: 1.3rem; font-weight: 800; background: linear-gradient(135deg,#6ee7f7,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; text-align:center; margin-bottom:24px; }
+    .card { width: 100%; max-width: 380px; }
+    .card h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+    .card .sub { color: #64748b; font-size: 0.88rem; margin-bottom: 28px; }
+    .pw-wrap { position: relative; }
+    .pw-wrap input { padding-right: 44px; }
+    .pw-toggle { position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:#475569; cursor:pointer; font-size:1rem; padding:4px; }
+    .footer-link { text-align:center; margin-top:20px; font-size:0.85rem; color:#475569; }
+    .footer-link a { color:#6ee7f7; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="logo">Pose Matcher</div>
+
+  <div class="card">
+    <h2>Welcome back</h2>
+    <p class="sub">Sign in to your account</p>
+
+    <div class="alert alert-error" id="errMsg"></div>
+
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" placeholder="your username" autocomplete="username" />
+    </div>
+
+    <div class="field">
+      <label for="password">Password</label>
+      <div class="pw-wrap">
+        <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" />
+        <button class="pw-toggle" id="pwToggle" type="button">👁</button>
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-full" id="loginBtn">Sign In</button>
+
+    <p class="footer-link">No account? <a href="/register">Create one</a></p>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/auth.js"></script>
+  <script>
+    // Already logged in → redirect
+    if (Auth.isLoggedIn()) {
+      window.location.replace(Auth.isAdmin() ? '/admin' : '/');
+    }
+
+    const pwToggle = document.getElementById('pwToggle');
+    const pwInput  = document.getElementById('password');
+    pwToggle.addEventListener('click', () => {
+      const show = pwInput.type === 'password';
+      pwInput.type = show ? 'text' : 'password';
+      pwToggle.textContent = show ? '🙈' : '👁';
+    });
+
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+    document.getElementById('loginBtn').addEventListener('click', doLogin);
+
+    async function doLogin() {
+      const btn      = document.getElementById('loginBtn');
+      const errMsg   = document.getElementById('errMsg');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      errMsg.classList.remove('visible');
+      if (!username || !password) {
+        errMsg.textContent = 'Please fill in all fields.';
+        errMsg.classList.add('visible');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+
+      try {
+        const res  = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errMsg.textContent = data.error || 'Login failed.';
+          errMsg.classList.add('visible');
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+          return;
+        }
+
+        Auth.save(data.token, { username: data.username, role: data.role });
+        window.location.href = data.role === 'admin' ? '/admin' : '/';
+      } catch {
+        errMsg.textContent = 'Network error. Is the server running?';
+        errMsg.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    }
+  </script>
+</body>
+</html>

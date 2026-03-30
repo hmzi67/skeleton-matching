@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel — Pose Matcher</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .stats-row { display:flex; gap:14px; margin-bottom:28px; flex-wrap:wrap; }
+    .stat-card { flex:1; min-width:110px; background:#1e2130; border:1px solid #2d3148; border-radius:12px; padding:18px 20px; text-align:center; }
+    .stat-card .num { font-size:2rem; font-weight:800; }
+    .stat-card .lbl { font-size:0.75rem; color:#64748b; margin-top:4px; text-transform:uppercase; letter-spacing:0.06em; }
+    .num-pending  { color:#fbbf24; }
+    .num-approved { color:#4ade80; }
+    .num-rejected { color:#f87171; }
+
+    .tabs { display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+    .tab { padding:7px 18px; border-radius:8px; border:1px solid #2d3148; background:transparent; color:#94a3b8; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
+    .tab.active, .tab:hover { background:#1e2130; color:#e2e8f0; border-color:#6ee7f7; }
+
+    .video-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; }
+
+    .video-card { background:#1e2130; border:1px solid #2d3148; border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
+    .video-card video { width:100%; height:175px; object-fit:cover; background:#000; display:block; }
+    .card-body { padding:16px; flex:1; display:flex; flex-direction:column; gap:8px; }
+    .card-title { font-weight:700; font-size:0.98rem; text-transform:capitalize; }
+    .card-meta { font-size:0.78rem; color:#64748b; line-height:1.6; }
+    .card-note { font-size:0.78rem; color:#94a3b8; font-style:italic; }
+
+    .note-input { width:100%; padding:8px 10px; background:#0f1117; border:1px solid #2d3148; border-radius:8px; color:#e2e8f0; font-size:0.83rem; resize:none; outline:none; transition:border-color 0.2s; font-family:inherit; }
+    .note-input:focus { border-color:#6ee7f7; }
+
+    .action-row { display:flex; gap:8px; margin-top:auto; }
+    .action-row .btn { flex:1; padding:9px; font-size:0.83rem; }
+
+    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+  </style>
+</head>
+<body>
+  <nav id="navBar"></nav>
+
+  <div class="page">
+    <div class="header-row">
+      <div>
+        <div class="page-title">Admin Panel</div>
+        <p class="page-sub" style="margin-bottom:0">Review and approve submitted reference videos.</p>
+      </div>
+      <a href="/" class="btn btn-ghost">View Site</a>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card"><div class="num num-pending"  id="statPending">—</div><div class="lbl">Pending</div></div>
+      <div class="stat-card"><div class="num num-approved" id="statApproved">—</div><div class="lbl">Approved</div></div>
+      <div class="stat-card"><div class="num num-rejected" id="statRejected">—</div><div class="lbl">Rejected</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-filter="pending">Pending</button>
+      <button class="tab" data-filter="approved">Approved</button>
+      <button class="tab" data-filter="rejected">Rejected</button>
+      <button class="tab" data-filter="">All</button>
+    </div>
+
+    <div class="video-grid" id="videoGrid"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/auth.js"></script>
+  <script>
+    Auth.guard('admin');
+
+    const user = Auth.getUser();
+    document.getElementById('navBar').innerHTML = `
+      <a class="nav-logo" href="/">Pose Matcher</a>
+      <div class="nav-links">
+        <span class="nav-user">👤 ${user.username} (admin)</span>
+        <button class="nav-logout" onclick="Auth.logout()">Logout</button>
+      </div>`;
+
+    const toast = document.getElementById('toast');
+    let allVideos = [], currentFilter = 'pending';
+
+    function showToast(msg, type = 'success') {
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    async function loadVideos() {
+      try {
+        const res = await Auth.apiFetch('/api/videos');
+        if (!res.ok) return;
+        allVideos = await res.json();
+        updateStats();
+        renderGrid();
+      } catch {
+        document.getElementById('videoGrid').innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">⚠️</div><p>Could not connect.</p></div>`;
+      }
+    }
+
+    function updateStats() {
+      document.getElementById('statPending').textContent  = allVideos.filter(v => v.status === 'pending').length;
+      document.getElementById('statApproved').textContent = allVideos.filter(v => v.status === 'approved').length;
+      document.getElementById('statRejected').textContent = allVideos.filter(v => v.status === 'rejected').length;
+    }
+
+    function renderGrid() {
+      const grid     = document.getElementById('videoGrid');
+      const filtered = currentFilter ? allVideos.filter(v => v.status === currentFilter) : allVideos;
+
+      if (filtered.length === 0) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">📭</div><p>No ${currentFilter || ''} videos.</p></div>`;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(v => `
+        <div class="video-card" id="card-${v.id}">
+          <video src="/api/video/${v.id}" controls preload="metadata"
+            onerror="this.style.display='none'"
+            onloadstart="this.style.display='block'"></video>
+          <div class="card-body">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div class="card-title">${v.exercise.replace(/_/g,' ')}</div>
+              <span class="badge badge-${v.status}">${v.status}</span>
+            </div>
+            <div class="card-meta">
+              <strong>File:</strong> ${v.original_name}<br>
+              <strong>By:</strong> ${v.uploader}<br>
+              <strong>Uploaded:</strong> ${new Date(v.uploaded_at).toLocaleString()}
+              ${v.reviewed_at ? `<br><strong>Reviewed:</strong> ${new Date(v.reviewed_at).toLocaleString()}` : ''}
+            </div>
+            ${v.admin_note ? `<div class="card-note">Note: ${v.admin_note}</div>` : ''}
+            ${v.status === 'pending' ? `
+              <textarea class="note-input" id="note-${v.id}" rows="2" placeholder="Optional note to uploader…"></textarea>
+              <div class="action-row">
+                <button class="btn btn-success" onclick="review('${v.id}','approve')">✓ Approve</button>
+                <button class="btn btn-danger"  onclick="review('${v.id}','reject')">✗ Reject</button>
+              </div>` : ''}
+          </div>
+        </div>`).join('');
+
+      // Load videos with auth token via blob
+      filtered.forEach(v => {
+        const vid = document.querySelector(`#card-${v.id} video`);
+        if (!vid) return;
+        Auth.apiFetch(`/api/video/${v.id}`)
+          .then(r => r.ok ? r.blob() : null)
+          .then(blob => { if (blob) vid.src = URL.createObjectURL(blob); })
+          .catch(() => {});
+      });
+    }
+
+    async function review(id, action) {
+      const noteEl = document.getElementById(`note-${id}`);
+      const note   = noteEl ? noteEl.value.trim() : '';
+      document.querySelectorAll(`#card-${id} .btn`).forEach(b => b.disabled = true);
+
+      try {
+        const res = await Auth.apiFetch(`/api/${action}/${id}`, {
+          method: 'POST',
+          body: JSON.stringify({ note }),
+        });
+        if (res.ok) {
+          showToast(`Video ${action}d`, 'success');
+          await loadVideos();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed', 'error');
+          document.querySelectorAll(`#card-${id} .btn`).forEach(b => b.disabled = false);
+        }
+      } catch {
+        showToast('Network error', 'error');
+        document.querySelectorAll(`#card-${id} .btn`).forEach(b => b.disabled = false);
+      }
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentFilter = tab.dataset.filter;
+        renderGrid();
+      });
+    });
+
+    loadVideos();
+    setInterval(loadVideos, 30000);
+  </script>
+</body>
+</html>
