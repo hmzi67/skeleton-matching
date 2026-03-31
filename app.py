@@ -104,7 +104,7 @@ _MODEL_PATHS = {
     "full": _MODEL_DIR / "pose_landmarker_full.task",
     "heavy": _MODEL_DIR / "pose_landmarker_heavy.task",
 }
-_DEFAULT_MODEL_TIER = os.environ.get("POSE_MODEL_TIER", "full").strip().lower()
+_DEFAULT_MODEL_TIER = os.environ.get("POSE_MODEL_TIER", "lite").strip().lower()
 LIVE_MATCH_WINDOW = max(1, int(os.environ.get("LIVE_MATCH_WINDOW", "5")))
 LIVE_MATCH_DEBUG_TIMINGS = os.environ.get("LIVE_MATCH_DEBUG_TIMINGS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -142,7 +142,9 @@ class LiveSessionState:
     last_live_angles: dict[str, float] | None = None
     last_live_ts_ms: float | None = None
     phase_machine: ExerciseStateMachine = field(default_factory=ExerciseStateMachine)
-    landmark_smoother: LandmarkSmoother = field(default_factory=LandmarkSmoother)
+    landmark_smoother: LandmarkSmoother = field(
+        default_factory=lambda: LandmarkSmoother(min_cutoff=2.5, beta=0.4),
+    )
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)

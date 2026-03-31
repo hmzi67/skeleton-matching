@@ -113,7 +113,7 @@ class LandmarkSmoother:
     def __init__(
         self,
         min_cutoff: float = 1.5,
-        beta: float = 0.01,
+        beta: float = 0.05,  # Higher beta = less lag for fast movements
         n_landmarks: int = 33,
     ) -> None:
         self.n_landmarks = n_landmarks
