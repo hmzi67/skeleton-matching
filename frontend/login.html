@@ -16,25 +16,38 @@
       justify-content: center; 
       padding: 24px;
       min-height: 100vh;
-      background: #0a0a0a;
+      background: #0f0f0f;
+      position: relative;
+    }
+    body::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse at center, rgba(45,212,191,0.06) 0%, transparent 70%);
+      pointer-events: none;
     }
     .logo { 
-      font-size: 1.4rem; 
-      font-weight: 800; 
-      color: #c9f31d;
-      text-align: center; 
-      margin-bottom: 32px;
-      letter-spacing: -0.02em;
-    }
-    .card { width: 100%; max-width: 400px; }
-    .card h2 { 
       font-size: 1.5rem; 
+      font-weight: 800; 
+      color: #2dd4bf;
+      text-align: center; 
+      margin-bottom: 36px;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+    }
+    .card { width: 100%; max-width: 420px; position: relative; }
+    .card h2 { 
+      font-size: 1.6rem; 
       font-weight: 700; 
       margin-bottom: 6px;
       color: #fff;
       letter-spacing: -0.02em;
     }
-    .card .sub { color: #737373; font-size: 0.9rem; margin-bottom: 32px; }
+    .card .sub { color: #6b7280; font-size: 0.92rem; margin-bottom: 32px; }
     .pw-wrap { position: relative; }
     .pw-wrap input { padding-right: 48px; }
     .pw-toggle { 
@@ -61,7 +74,7 @@
       color: #525252; 
     }
     .footer-link a { 
-      color: #c9f31d; 
+      color: #2dd4bf; 
       text-decoration: none; 
       font-weight: 500;
     }
@@ -69,7 +82,7 @@
   </style>
 </head>
 <body>
-  <div class="logo">Pose Matcher</div>
+  <a class="logo" href="/">Pose Matcher</a>
 
   <div class="card">
     <h2>Welcome back</h2>

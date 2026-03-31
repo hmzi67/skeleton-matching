@@ -10,18 +10,18 @@
   <link rel="stylesheet" href="/style.css" />
   <style>
     .drop-zone {
-      border: 2px dashed #333;
-      border-radius: 14px;
-      padding: 50px 24px;
+      border: 2px dashed #2a2a2a;
+      border-radius: 16px;
+      padding: 56px 24px;
       text-align: center;
       cursor: pointer;
       transition: all 0.25s ease;
       position: relative;
-      background: linear-gradient(145deg, #0f0f0f 0%, #0a0a0a 100%);
+      background: linear-gradient(145deg, #121212 0%, #0f0f0f 100%);
     }
     .drop-zone:hover, .drop-zone.over { 
-      border-color: #c9f31d; 
-      background: rgba(201, 243, 29, 0.03);
+      border-color: #2dd4bf; 
+      background: rgba(45, 212, 191, 0.03);
     }
     .drop-zone input[type="file"] { 
       position: absolute; 
@@ -32,48 +32,48 @@
       height: 100%; 
     }
     .drop-zone .dz-icon { 
-      width: 64px;
-      height: 64px;
-      margin: 0 auto 16px;
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 18px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 16px;
-      color: #c9f31d;
+      background: linear-gradient(135deg, rgba(45,212,191,0.1) 0%, rgba(45,212,191,0.05) 100%);
+      border: 1px solid rgba(45,212,191,0.2);
+      border-radius: 18px;
+      color: #2dd4bf;
     }
-    .drop-zone p { color: #737373; font-size: 0.92rem; }
-    .drop-zone p span { color: #c9f31d; font-weight: 600; }
+    .drop-zone p { color: #6b7280; font-size: 0.94rem; }
+    .drop-zone p span { color: #2dd4bf; font-weight: 600; }
 
     .preview-row { 
       display: none; 
       align-items: center; 
-      gap: 16px; 
-      background: #0a0a0a; 
-      border: 1px solid #262626; 
-      border-radius: 12px; 
-      padding: 14px 18px; 
-      margin-top: 16px; 
+      gap: 18px; 
+      background: #121212; 
+      border: 1px solid #252525; 
+      border-radius: 14px; 
+      padding: 16px 20px; 
+      margin-top: 18px; 
     }
     .preview-row.visible { display: flex; }
     .preview-row video { 
-      width: 92px; 
-      height: 62px; 
+      width: 100px; 
+      height: 68px; 
       object-fit: cover; 
-      border-radius: 8px; 
-      background: #000; 
+      border-radius: 10px; 
+      background: #0f0f0f; 
       flex-shrink: 0; 
     }
     .preview-row .pf-name { 
-      font-size: 0.92rem; 
+      font-size: 0.94rem; 
       font-weight: 600; 
       white-space: nowrap; 
       overflow: hidden; 
       text-overflow: ellipsis;
       color: #fff;
     }
-    .preview-row .pf-size { font-size: 0.78rem; color: #737373; margin-top: 3px; }
+    .preview-row .pf-size { font-size: 0.8rem; color: #6b7280; margin-top: 4px; }
     .preview-row .close-btn {
       background: none;
       border: none;
@@ -84,9 +84,9 @@
       padding: 4px;
       transition: color 0.2s;
     }
-    .preview-row .close-btn:hover { color: #a3a3a3; }
+    .preview-row .close-btn:hover { color: #ef4444; }
 
-    .progress-wrap { display: none; margin-top: 16px; }
+    .progress-wrap { display: none; margin-top: 18px; }
     .progress-wrap.visible { display: block; }
     .progress-bg { 
       background: #1a1a1a; 
@@ -96,12 +96,12 @@
     }
     .progress-fill { 
       height: 100%; 
-      background: linear-gradient(90deg, #c9f31d, #a8d119); 
+      background: linear-gradient(90deg, #2dd4bf, #14b8a6); 
       border-radius: 99px; 
       width: 0%; 
       transition: width 0.3s; 
     }
-    .progress-lbl { font-size: 0.78rem; color: #737373; margin-top: 6px; text-align: right; }
+    .progress-lbl { font-size: 0.8rem; color: #6b7280; margin-top: 8px; text-align: right; }
   </style>
 </head>
 <body>

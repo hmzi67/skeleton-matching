@@ -6,29 +6,95 @@
   <title>Pose Matcher</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .hero { text-align:center; padding:60px 20px 44px; }
-    .hero h1 { font-size:clamp(2rem,5vw,3rem); font-weight:800; background:linear-gradient(135deg,#6ee7f7,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1.2; }
-    .hero p { color:#64748b; margin-top:14px; font-size:1rem; max-width:440px; margin-left:auto; margin-right:auto; }
-    .hero-actions { display:flex; gap:12px; justify-content:center; margin-top:24px; flex-wrap:wrap; }
+    .hero { text-align:center; padding:80px 20px 60px; position:relative; }
+    .hero::before { content:''; position:absolute; top:0; left:50%; transform:translateX(-50%); width:600px; height:400px; background:radial-gradient(ellipse at center, rgba(45,212,191,0.08) 0%, transparent 70%); pointer-events:none; }
+    .hero h1 { font-size:clamp(2.2rem,5vw,3.2rem); font-weight:800; background:linear-gradient(135deg,#2dd4bf 0%,#5eead4 50%,#fff 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; line-height:1.2; position:relative; }
+    .hero p { color:#6b7280; margin-top:16px; font-size:1.05rem; max-width:480px; margin-left:auto; margin-right:auto; line-height:1.7; }
+    .hero-actions { display:flex; gap:12px; justify-content:center; margin-top:28px; flex-wrap:wrap; }
 
-    .section-label { text-align:center; font-size:0.78rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#475569; margin-bottom:24px; }
+    .section-label { text-align:center; font-size:0.75rem; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#525252; margin-bottom:28px; }
 
-    .exercise-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:16px; }
+    .exercise-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:20px; }
 
-    .ex-card { background:#1e2130; border:1px solid #2d3148; border-radius:16px; padding:28px 18px 22px; text-align:center; cursor:pointer; transition:border-color 0.2s,transform 0.15s,box-shadow 0.2s; text-decoration:none; color:inherit; display:flex; flex-direction:column; align-items:center; gap:10px; }
-    .ex-card:hover { border-color:#6ee7f7; transform:translateY(-3px); box-shadow:0 8px 28px rgba(110,231,247,0.08); }
-    .ex-card .ex-icon { font-size:2.4rem; line-height:1; }
-    .ex-card .ex-name { font-weight:700; font-size:0.98rem; text-transform:capitalize; }
-    .ex-card .ex-sub  { font-size:0.76rem; color:#475569; }
+    .ex-card { 
+      background:linear-gradient(145deg, #181818 0%, #121212 100%); 
+      border:1px solid #252525; 
+      border-radius:20px; 
+      padding:32px 20px 26px; 
+      text-align:center; 
+      cursor:pointer; 
+      transition:all 0.25s ease; 
+      text-decoration:none; 
+      color:inherit; 
+      display:flex; 
+      flex-direction:column; 
+      align-items:center; 
+      gap:12px;
+      position:relative;
+      overflow:hidden;
+    }
+    .ex-card::before { 
+      content:''; 
+      position:absolute; 
+      top:0; 
+      left:0; 
+      right:0; 
+      height:3px; 
+      background:linear-gradient(90deg, #2dd4bf, #14b8a6); 
+      opacity:0; 
+      transition:opacity 0.25s; 
+    }
+    .ex-card:hover { 
+      border-color:#2dd4bf; 
+      transform:translateY(-4px); 
+      box-shadow:0 12px 40px rgba(45,212,191,0.12); 
+    }
+    .ex-card:hover::before { opacity:1; }
+    .ex-card .ex-icon { 
+      width:56px; 
+      height:56px; 
+      display:flex; 
+      align-items:center; 
+      justify-content:center; 
+      background:linear-gradient(135deg, rgba(45,212,191,0.1) 0%, rgba(45,212,191,0.05) 100%); 
+      border:1px solid rgba(45,212,191,0.2); 
+      border-radius:14px; 
+      color:#2dd4bf;
+    }
+    .ex-card .ex-name { font-weight:700; font-size:1rem; text-transform:capitalize; color:#fff; }
+    .ex-card .ex-sub { font-size:0.78rem; color:#6b7280; }
+    .ex-card .ex-uploader { font-size:0.72rem; color:#525252; margin-top:4px; }
 
     .ex-card.ghost { pointer-events:none; animation:pulse 1.5s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
-    .ex-card.ghost .ex-icon,.ex-card.ghost .ex-name,.ex-card.ghost .ex-sub { background:#2d3148; border-radius:6px; color:transparent; }
+    .ex-card.ghost .ex-icon,.ex-card.ghost .ex-name,.ex-card.ghost .ex-sub { background:#252525; border-radius:8px; color:transparent; }
 
     /* guest CTA banner */
-    .cta-banner { background:#1e2130; border:1px solid #2d3148; border-radius:14px; padding:20px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:32px; flex-wrap:wrap; }
-    .cta-banner p { color:#94a3b8; font-size:0.9rem; }
-    .cta-banner .cta-btns { display:flex; gap:10px; }
+    .cta-banner { 
+      background:linear-gradient(145deg, #181818 0%, #121212 100%); 
+      border:1px solid #252525; 
+      border-radius:16px; 
+      padding:24px 28px; 
+      display:flex; 
+      align-items:center; 
+      justify-content:space-between; 
+      gap:20px; 
+      margin-bottom:36px; 
+      flex-wrap:wrap;
+      position:relative;
+      overflow:hidden;
+    }
+    .cta-banner::before {
+      content:'';
+      position:absolute;
+      left:0;
+      top:0;
+      bottom:0;
+      width:3px;
+      background:linear-gradient(180deg, #2dd4bf, #14b8a6);
+    }
+    .cta-banner p { color:#9ca3af; font-size:0.92rem; }
+    .cta-banner .cta-btns { display:flex; gap:12px; }
   </style>
 </head>
 <body>
@@ -47,17 +113,24 @@
     <div id="ctaBanner"></div>
     <div class="section-label">Choose an exercise</div>
     <div class="exercise-grid" id="exerciseGrid">
-      <div class="ex-card ghost"><div class="ex-icon">⬛</div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
-      <div class="ex-card ghost"><div class="ex-icon">⬛</div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
-      <div class="ex-card ghost"><div class="ex-icon">⬛</div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+      <div class="ex-card ghost"><div class="ex-icon"></div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+      <div class="ex-card ghost"><div class="ex-icon"></div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+      <div class="ex-card ghost"><div class="ex-icon"></div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
     </div>
   </div>
 
   <div class="toast" id="toast"></div>
   <script src="/auth.js"></script>
   <script>
-    const ICONS = { squat:'🏋️', pushup:'💪', deadlift:'🔩', lunge:'🦵', shoulder_press:'🙌', default:'🤸' };
-    const DESC  = { squat:'Lower body strength', pushup:'Upper body & core', deadlift:'Full body power', lunge:'Balance & legs', shoulder_press:'Shoulder strength', default:'General exercise' };
+    const ICONS = {
+      squat: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><path d="M12 8v4M8 20l4-8 4 8M6 16h12"/></svg>`,
+      pushup: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="3"/><path d="M8 12h13M15 8l4 4-4 4"/></svg>`,
+      deadlift: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="4" rx="1"/><path d="M6 10V6M18 10V6M6 14v4M18 14v4"/></svg>`,
+      lunge: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2"/><path d="M7 21l5-9 5 9M12 12v-4M8 16h8"/></svg>`,
+      shoulder_press: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M6 9l6-3 6 3M6 21v-8M18 21v-8"/></svg>`,
+      default: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><path d="M12 8v8M7 12l5-2 5 2M7 20l5-4 5 4"/></svg>`
+    };
+    const DESC = { squat:'Lower body strength', pushup:'Upper body & core', deadlift:'Full body power', lunge:'Balance & legs', shoulder_press:'Shoulder strength', default:'General exercise' };
 
     const loggedIn = Auth.isLoggedIn();
     const user     = Auth.getUser();
@@ -71,7 +144,7 @@
           ${user.role === 'admin'
             ? `<a href="/admin">Admin Panel</a>`
             : `<a href="/upload">Upload Video</a><a href="/dashboard">My Uploads</a>`}
-          <span class="nav-user">👤 ${user.username}</span>
+          <span class="nav-user">${user.username}</span>
           <button class="nav-logout" onclick="Auth.logout()">Logout</button>
         </div>`;
     } else {
@@ -79,7 +152,7 @@
         <a class="nav-logo" href="/">Pose Matcher</a>
         <div class="nav-links">
           <a href="/login">Sign In</a>
-          <a href="/register" class="btn btn-primary" style="padding:7px 18px;font-size:0.85rem">Get Started</a>
+          <a href="/register" class="btn btn-primary" style="padding:8px 20px;font-size:0.85rem">Get Started</a>
         </div>`;
     }
 
@@ -89,8 +162,8 @@
         <div class="cta-banner">
           <p>Sign in to upload your own reference videos and track your progress.</p>
           <div class="cta-btns">
-            <a href="/login"    class="btn btn-ghost" style="padding:8px 18px;font-size:0.85rem">Sign In</a>
-            <a href="/register" class="btn btn-primary" style="padding:8px 18px;font-size:0.85rem">Register</a>
+            <a href="/login"    class="btn btn-ghost" style="padding:10px 20px;font-size:0.85rem">Sign In</a>
+            <a href="/register" class="btn btn-primary" style="padding:10px 20px;font-size:0.85rem">Register</a>
           </div>
         </div>`;
     }
@@ -103,7 +176,9 @@
 
         if (exercises.length === 0) {
           grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
-            <div class="icon">📭</div>
+            <div class="icon">
+              <svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2"><rect x="3" y="5" width="22" height="16" rx="2"/><polygon points="10 9 16 12 10 15"/></svg>
+            </div>
             <p>No approved exercises yet.<br>
                ${loggedIn ? `<a href="/upload">Upload a reference video</a> for admin review.` : `<a href="/register">Register</a> to upload a reference video.`}
             </p></div>`;
@@ -112,7 +187,6 @@
 
         grid.innerHTML = exercises.map(e => {
           const name = e.exercise.replace(/_/g, ' ');
-          // Exercise page requires auth — redirect to login if guest
           const href = loggedIn
             ? `/exercise?exercise=${encodeURIComponent(e.exercise)}&ref=${e.video_id}`
             : `/login`;
@@ -122,11 +196,16 @@
               <div class="ex-icon">${ICONS[e.exercise] || ICONS.default}</div>
               <div class="ex-name">${name}</div>
               <div class="ex-sub">${DESC[e.exercise] || 'Exercise'}</div>
-              <div class="ex-sub">Uploaded by ${uploaderName}</div>
+              <div class="ex-uploader">by ${uploaderName}</div>
             </a>`;
         }).join('');
       } catch {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">⚠️</div><p>Could not connect to server.</p></div>`;
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+          <div class="icon">
+            <svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2"><circle cx="14" cy="14" r="10"/><line x1="14" y1="10" x2="14" y2="14"/><line x1="14" y1="18" x2="14.01" y2="18"/></svg>
+          </div>
+          <p>Could not connect to server.</p>
+        </div>`;
       }
     }
 

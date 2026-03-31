@@ -6,47 +6,67 @@
   <title>Admin Panel — Pose Matcher</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .stats-row { display:flex; gap:14px; margin-bottom:28px; flex-wrap:wrap; }
-    .stat-card { flex:1; min-width:110px; background:#1e2130; border:1px solid #2d3148; border-radius:12px; padding:18px 20px; text-align:center; }
-    .stat-card .num { font-size:2rem; font-weight:800; }
-    .stat-card .lbl { font-size:0.75rem; color:#64748b; margin-top:4px; text-transform:uppercase; letter-spacing:0.06em; }
+    .stats-row { display:flex; gap:16px; margin-bottom:32px; flex-wrap:wrap; }
+    .stat-card { 
+      flex:1; 
+      min-width:130px; 
+      background:linear-gradient(145deg, #181818 0%, #121212 100%); 
+      border:1px solid #252525; 
+      border-radius:16px; 
+      padding:24px 22px; 
+      text-align:center;
+      transition:all 0.25s ease;
+    }
+    .stat-card:hover { border-color:#2dd4bf; box-shadow:0 8px 32px rgba(45,212,191,0.08); }
+    .stat-card .num { font-size:2.2rem; font-weight:800; }
+    .stat-card .lbl { font-size:0.75rem; color:#6b7280; margin-top:6px; text-transform:uppercase; letter-spacing:0.08em; }
     .num-pending  { color:#fbbf24; }
-    .num-approved { color:#4ade80; }
+    .num-approved { color:#2dd4bf; }
     .num-rejected { color:#f87171; }
 
-    .tabs { display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
-    .tab { padding:7px 18px; border-radius:8px; border:1px solid #2d3148; background:transparent; color:#94a3b8; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
-    .tab.active, .tab:hover { background:#1e2130; color:#e2e8f0; border-color:#6ee7f7; }
+    .tabs { display:flex; gap:10px; margin-bottom:28px; flex-wrap:wrap; }
+    .tab { padding:10px 20px; border-radius:10px; border:1px solid #252525; background:transparent; color:#9ca3af; font-size:0.88rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
+    .tab.active, .tab:hover { background:#181818; color:#fff; border-color:#2dd4bf; }
 
-    .filter-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px; }
+    .filter-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
     .filter-input {
       width:100%;
-      background:#0f1117;
-      border:1px solid #2d3148;
-      border-radius:10px;
-      color:#e2e8f0;
-      padding:10px 12px;
-      font-size:0.84rem;
+      background:#121212;
+      border:1px solid #252525;
+      border-radius:12px;
+      color:#e5e5e5;
+      padding:12px 14px;
+      font-size:0.88rem;
       outline:none;
+      transition:border-color 0.2s;
     }
-    .filter-input:focus { border-color:#6ee7f7; }
+    .filter-input:focus { border-color:#2dd4bf; }
 
-    .video-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; }
+    .video-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:20px; }
 
-    .video-card { background:#1e2130; border:1px solid #2d3148; border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
-    .video-card video { width:100%; height:175px; object-fit:cover; background:#000; display:block; }
-    .card-body { padding:16px; flex:1; display:flex; flex-direction:column; gap:8px; }
-    .card-title { font-weight:700; font-size:0.98rem; text-transform:capitalize; }
-    .card-meta { font-size:0.78rem; color:#64748b; line-height:1.6; }
-    .card-note { font-size:0.78rem; color:#94a3b8; font-style:italic; }
+    .video-card { 
+      background:linear-gradient(145deg, #181818 0%, #121212 100%); 
+      border:1px solid #252525; 
+      border-radius:18px; 
+      overflow:hidden; 
+      display:flex; 
+      flex-direction:column;
+      transition:all 0.25s ease;
+    }
+    .video-card:hover { border-color:#2dd4bf; box-shadow:0 8px 32px rgba(45,212,191,0.08); }
+    .video-card video { width:100%; height:180px; object-fit:cover; background:#0f0f0f; display:block; }
+    .card-body { padding:18px; flex:1; display:flex; flex-direction:column; gap:10px; }
+    .card-title { font-weight:700; font-size:1rem; text-transform:capitalize; color:#fff; }
+    .card-meta { font-size:0.8rem; color:#6b7280; line-height:1.7; }
+    .card-note { font-size:0.8rem; color:#9ca3af; font-style:italic; padding:10px 12px; background:rgba(45,212,191,0.05); border-radius:8px; border-left:2px solid #2dd4bf; }
 
-    .note-input { width:100%; padding:8px 10px; background:#0f1117; border:1px solid #2d3148; border-radius:8px; color:#e2e8f0; font-size:0.83rem; resize:none; outline:none; transition:border-color 0.2s; font-family:inherit; }
-    .note-input:focus { border-color:#6ee7f7; }
+    .note-input { width:100%; padding:10px 12px; background:#121212; border:1px solid #252525; border-radius:10px; color:#e5e5e5; font-size:0.85rem; resize:none; outline:none; transition:border-color 0.2s; font-family:inherit; }
+    .note-input:focus { border-color:#2dd4bf; }
 
-    .action-row { display:flex; gap:8px; margin-top:auto; }
-    .action-row .btn { flex:1; padding:9px; font-size:0.83rem; }
+    .action-row { display:flex; gap:10px; margin-top:auto; }
+    .action-row .btn { flex:1; padding:10px; font-size:0.85rem; }
 
-    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; flex-wrap:wrap; gap:14px; }
 
     @media (max-width:700px) { .filter-row { grid-template-columns:1fr; } }
   </style>
@@ -95,7 +115,7 @@
     document.getElementById('navBar').innerHTML = `
       <a class="nav-logo" href="/">Pose Matcher</a>
       <div class="nav-links">
-        <span class="nav-user">👤 ${user.username} (admin)</span>
+        <span class="nav-user">${user.username} (admin)</span>
         <button class="nav-logout" onclick="Auth.logout()">Logout</button>
       </div>`;
 
@@ -117,7 +137,7 @@
         updateStats();
         renderGrid();
       } catch {
-        document.getElementById('videoGrid').innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">⚠️</div><p>Could not connect.</p></div>`;
+        document.getElementById('videoGrid').innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon"><svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2"><circle cx="14" cy="14" r="10"/><line x1="14" y1="10" x2="14" y2="14"/><line x1="14" y1="18" x2="14.01" y2="18"/></svg></div><p>Could not connect.</p></div>`;
       }
     }
 
@@ -164,7 +184,7 @@
       });
 
       if (filtered.length === 0) {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">📭</div><p>No matching videos for the selected uploader filter.</p></div>`;
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon"><svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2"><rect x="3" y="5" width="22" height="16" rx="2"/><polygon points="10 9 16 12 10 15"/></svg></div><p>No matching videos for the selected uploader filter.</p></div>`;
         return;
       }
 
@@ -190,8 +210,8 @@
             ${v.status === 'pending' ? `
               <textarea class="note-input" id="note-${v.id}" rows="2" placeholder="Optional note to uploader…"></textarea>
               <div class="action-row">
-                <button class="btn btn-success" onclick="review('${v.id}','approve')">✓ Approve</button>
-                <button class="btn btn-danger"  onclick="review('${v.id}','reject')">✗ Reject</button>
+                <button class="btn btn-success" onclick="review('${v.id}','approve')">Approve</button>
+                <button class="btn btn-danger"  onclick="review('${v.id}','reject')">Reject</button>
               </div>` : ''}
           </div>
         </div>`).join('');

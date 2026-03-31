@@ -9,42 +9,42 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .upload-list { display: flex; flex-direction: column; gap: 14px; }
+    .upload-list { display: flex; flex-direction: column; gap: 16px; }
 
     .upload-item {
-      background: linear-gradient(145deg, #141414 0%, #0f0f0f 100%);
-      border: 1px solid #262626;
-      border-radius: 14px;
-      padding: 18px 22px;
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 16px;
+      padding: 20px 24px;
       display: flex;
       align-items: center;
-      gap: 18px;
+      gap: 20px;
       flex-wrap: wrap;
-      transition: border-color 0.2s;
+      transition: all 0.25s ease;
     }
-    .upload-item:hover { border-color: #333; }
+    .upload-item:hover { border-color: #2dd4bf; box-shadow: 0 8px 32px rgba(45, 212, 191, 0.08); }
 
     .upload-item video {
-      width: 100px;
-      height: 68px;
+      width: 110px;
+      height: 74px;
       object-fit: cover;
-      border-radius: 10px;
-      background: #0a0a0a;
+      border-radius: 12px;
+      background: #0f0f0f;
       flex-shrink: 0;
     }
 
     .upload-info { flex: 1; min-width: 160px; }
-    .upload-name { font-weight: 700; font-size: 0.98rem; text-transform: capitalize; color: #fff; }
-    .upload-meta { font-size: 0.78rem; color: #737373; margin-top: 5px; line-height: 1.7; }
-    .upload-note { font-size: 0.78rem; color: #a3a3a3; font-style: italic; margin-top: 6px; }
+    .upload-name { font-weight: 700; font-size: 1rem; text-transform: capitalize; color: #fff; }
+    .upload-meta { font-size: 0.8rem; color: #6b7280; margin-top: 6px; line-height: 1.7; }
+    .upload-note { font-size: 0.8rem; color: #9ca3af; font-style: italic; margin-top: 8px; padding: 8px 12px; background: rgba(45, 212, 191, 0.05); border-radius: 8px; border-left: 2px solid #2dd4bf; }
 
     .header-row { 
       display: flex; 
       align-items: center; 
       justify-content: space-between; 
-      margin-bottom: 28px; 
+      margin-bottom: 32px; 
       flex-wrap: wrap; 
-      gap: 14px; 
+      gap: 16px; 
     }
   </style>
 </head>
