@@ -61,7 +61,7 @@ const Auth = (() => {
           ? `<a href="/admin">Dashboard</a>`
           : `<a href="/dashboard">My Uploads</a><a href="/upload">Upload Video</a>`
         }
-        <span class="nav-user">👤 ${user.username}</span>
+        <span class="nav-user">${user.username}</span>
         <button class="nav-logout" onclick="Auth.logout()">Logout</button>
       </div>`;
   }

@@ -116,11 +116,13 @@
           const href = loggedIn
             ? `/exercise?exercise=${encodeURIComponent(e.exercise)}&ref=${e.video_id}`
             : `/login`;
+          const uploaderName = e.uploader?.username || 'unknown';
           return `
             <a class="ex-card" href="${href}">
               <div class="ex-icon">${ICONS[e.exercise] || ICONS.default}</div>
               <div class="ex-name">${name}</div>
               <div class="ex-sub">${DESC[e.exercise] || 'Exercise'}</div>
+              <div class="ex-sub">Uploaded by ${uploaderName}</div>
             </a>`;
         }).join('');
       } catch {

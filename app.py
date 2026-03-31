@@ -6,19 +6,42 @@ Roles: user | admin
 
 from __future__ import annotations
 
+import base64
+import json
+import math
 import os
+import time
 import uuid
+from bisect import bisect_left
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 
 import bcrypt
+import cv2
 import jwt
+import mediapipe as mp
+import numpy as np
 from dotenv import load_dotenv
 from flask import Flask, abort, jsonify, request, send_file
+from mediapipe.tasks.python import BaseOptions
+from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 from flask_cors import CORS
 from prisma import Prisma
+from src.exercise_weights import get_weights
+from src.extractor import extract_skeleton_from_video, load_skeleton
+from src.feedback import generate_feedback
+from src.filters import LandmarkSmoother
+from src.matcher import match_single_frame
+from src.normalizer import normalize_skeleton
+from src.state_machine import ExerciseStateMachine
 from werkzeug.utils import secure_filename
+
+try:
+    from flask_sock import Sock
+except ModuleNotFoundError:
+    Sock = None
 
 load_dotenv()
 
@@ -35,15 +58,103 @@ PENDING_DIR.mkdir(parents=True, exist_ok=True)
 APPROVED_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
+SKELETON_CACHE_DIR = Path("data/cache/reference_skeletons")
+SKELETON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+POSE_CONNECTIONS = [
+    [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+    [11, 23], [12, 24], [23, 24],
+    [23, 25], [25, 27], [24, 26], [26, 28],
+    [27, 31], [28, 32], [15, 17], [16, 18], [15, 19], [16, 20],
+]
+
+_ANGLE_JOINTS = [
+    ("left_elbow", 13, 11, 15),
+    ("right_elbow", 14, 12, 16),
+    ("left_knee", 25, 23, 27),
+    ("right_knee", 26, 24, 28),
+    ("left_hip", 23, 11, 25),
+    ("right_hip", 24, 12, 26),
+    ("left_shoulder", 11, 13, 23),
+    ("right_shoulder", 12, 14, 24),
+]
+
+_BONE_JOINT_MAP: dict[tuple[int, int], str] = {
+    (11, 13): "left_shoulder", (13, 15): "left_elbow",
+    (12, 14): "right_shoulder", (14, 16): "right_elbow",
+    (23, 25): "left_hip",      (25, 27): "left_knee",
+    (24, 26): "right_hip",     (26, 28): "right_knee",
+    (11, 23): "torso_lean",    (12, 24): "torso_lean",
+    (11, 12): "torso_lean",    (23, 24): "torso_lean",
+    (27, 31): "left_knee",     (28, 32): "right_knee",
+    (15, 17): "left_elbow",    (16, 18): "right_elbow",
+    (15, 19): "left_elbow",    (16, 20): "right_elbow",
+}
+
+_JOINT_LANDMARK_IDX: dict[str, int] = {
+    "left_elbow": 13, "right_elbow": 14,
+    "left_knee": 25,  "right_knee": 26,
+    "left_hip": 23,   "right_hip": 24,
+    "left_shoulder": 11, "right_shoulder": 12,
+}
+
+_MODEL_DIR = Path(__file__).resolve().parent / "models"
+_MODEL_PATHS = {
+    "lite": _MODEL_DIR / "pose_landmarker_lite.task",
+    "full": _MODEL_DIR / "pose_landmarker_full.task",
+    "heavy": _MODEL_DIR / "pose_landmarker_heavy.task",
+}
+_DEFAULT_MODEL_TIER = os.environ.get("POSE_MODEL_TIER", "full").strip().lower()
+LIVE_MATCH_WINDOW = max(1, int(os.environ.get("LIVE_MATCH_WINDOW", "5")))
+LIVE_MATCH_DEBUG_TIMINGS = os.environ.get("LIVE_MATCH_DEBUG_TIMINGS", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_model_path() -> str:
+    preferred = _MODEL_PATHS.get(_DEFAULT_MODEL_TIER) or _MODEL_PATHS["full"]
+    if preferred.exists():
+        return str(preferred)
+    for tier in ("full", "lite", "heavy"):
+        candidate = _MODEL_PATHS[tier]
+        if candidate.exists():
+            return str(candidate)
+    return str(_MODEL_PATHS["heavy"])
+
+
+_MODEL_PATH = _resolve_model_path()
+
+_pose_detector = PoseLandmarker.create_from_options(
+    PoseLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=_MODEL_PATH),
+        running_mode=RunningMode.IMAGE,
+        num_poses=1,
+    )
+)
+
+
+@dataclass
+class LiveSessionState:
+    user_id: str
+    ref_video_id: str
+    exercise: str
+    gt_norm: list[dict]
+    ref_timestamps_ms: list[float]
+    smoothed_score: float = 50.0
+    last_live_angles: dict[str, float] | None = None
+    last_live_ts_ms: float | None = None
+    phase_machine: ExerciseStateMachine = field(default_factory=ExerciseStateMachine)
+    landmark_smoother: LandmarkSmoother = field(default_factory=LandmarkSmoother)
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)
+sock = Sock(app) if Sock is not None else None
 
 # ---------------------------------------------------------------------------
 # Prisma client (one shared instance, connected per request)
 # ---------------------------------------------------------------------------
 
 db = Prisma()
+_reference_norm_cache: dict[str, list[dict]] = {}
+_http_live_states: dict[str, LiveSessionState] = {}
 
 
 @app.before_request
@@ -98,6 +209,437 @@ def _get_bearer() -> str | None:
     return auth[7:] if auth.startswith("Bearer ") else None
 
 
+def _decode_token_and_session(token: str) -> dict | None:
+    payload = _decode_token(token)
+    if not payload:
+        return None
+    session = db.session.find_unique(where={"token": token})
+    if not session or session.expiresAt < datetime.now(timezone.utc):
+        return None
+    return payload
+
+
+def _decode_data_url_to_bgr(image_data_url: str) -> np.ndarray | None:
+    if not image_data_url:
+        return None
+    try:
+        b64_part = image_data_url.split(",", 1)[1] if "," in image_data_url else image_data_url
+        img_bytes = base64.b64decode(b64_part)
+        arr = np.frombuffer(img_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        return img
+    except Exception:
+        return None
+
+
+def _extract_landmarks(image_bgr: np.ndarray) -> list[dict] | None:
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    results = _pose_detector.detect(mp_image)
+    if not results.pose_landmarks or len(results.pose_landmarks) == 0:
+        return None
+
+    landmarks: list[dict] = []
+    for lm in results.pose_landmarks[0]:
+        landmarks.append({
+            "x": float(lm.x),
+            "y": float(lm.y),
+            "z": float(lm.z),
+            "visibility": float(lm.visibility),
+        })
+    return landmarks
+
+
+def _vec(a: dict, b: dict) -> tuple[float, float, float]:
+    return (b["x"] - a["x"], b["y"] - a["y"], b["z"] - a["z"])
+
+
+def _dot(v1: tuple[float, float, float], v2: tuple[float, float, float]) -> float:
+    return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
+
+
+def _norm(v: tuple[float, float, float]) -> float:
+    return math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+
+
+def _angle(a: dict, b: dict, c: dict) -> float:
+    v1 = _vec(b, a)
+    v2 = _vec(b, c)
+    mag = _norm(v1) * _norm(v2)
+    if mag < 1e-8:
+        return 0.0
+    cosv = max(-1.0, min(1.0, _dot(v1, v2) / mag))
+    return math.degrees(math.acos(cosv))
+
+
+def _extract_angles(landmarks: list[dict]) -> dict[str, float]:
+    angles: dict[str, float] = {}
+    for name, vertex, a, c in _ANGLE_JOINTS:
+        angles[name] = _angle(landmarks[a], landmarks[vertex], landmarks[c])
+
+    hip_center = {
+        "x": (landmarks[23]["x"] + landmarks[24]["x"]) / 2.0,
+        "y": (landmarks[23]["y"] + landmarks[24]["y"]) / 2.0,
+        "z": (landmarks[23]["z"] + landmarks[24]["z"]) / 2.0,
+    }
+    shoulder_center = {
+        "x": (landmarks[11]["x"] + landmarks[12]["x"]) / 2.0,
+        "y": (landmarks[11]["y"] + landmarks[12]["y"]) / 2.0,
+        "z": (landmarks[11]["z"] + landmarks[12]["z"]) / 2.0,
+    }
+
+    spine = _vec(hip_center, shoulder_center)
+    vertical = (0.0, -1.0, 0.0)
+    mag = _norm(spine) * _norm(vertical)
+    if mag < 1e-8:
+        angles["torso_lean"] = 0.0
+    else:
+        cosv = max(-1.0, min(1.0, _dot(spine, vertical) / mag))
+        angles["torso_lean"] = math.degrees(math.acos(cosv))
+
+    return angles
+
+
+def _compute_match_score(gt_angles: dict[str, float], user_angles: dict[str, float]) -> tuple[int, dict[str, float]]:
+    joint_diffs: dict[str, float] = {}
+    if not gt_angles:
+        return 0, joint_diffs
+
+    total = 0.0
+    for joint, gt_val in gt_angles.items():
+        diff = abs(user_angles.get(joint, 0.0) - gt_val)
+        joint_diffs[joint] = round(diff, 2)
+        total += diff
+
+    avg_diff = total / len(gt_angles)
+    score = max(0.0, min(100.0, 100.0 - (avg_diff / 45.0) * 100.0))
+    return int(round(score)), joint_diffs
+
+
+def _resolve_video_path(video_id: str) -> Path | None:
+    record = db.video.find_unique(where={"id": video_id})
+    if not record:
+        return None
+    pending_path = PENDING_DIR / record.storedName
+    if pending_path.exists():
+        return pending_path
+    approved_path = APPROVED_DIR / record.storedName
+    if approved_path.exists():
+        return approved_path
+    return None
+
+
+def _load_or_extract_reference_norm(video_id: str) -> list[dict]:
+    if video_id in _reference_norm_cache:
+        return _reference_norm_cache[video_id]
+
+    cache_path = SKELETON_CACHE_DIR / f"{video_id}.normalized.json"
+    if cache_path.exists():
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            _reference_norm_cache[video_id] = data
+            return data
+
+    video_path = _resolve_video_path(video_id)
+    if video_path is None:
+        raise FileNotFoundError("Reference video not found")
+
+    raw_cache_path = video_path.with_suffix(".json")
+    if raw_cache_path.exists():
+        raw_skeleton = load_skeleton(str(raw_cache_path))
+    else:
+        raw_skeleton = extract_skeleton_from_video(str(video_path))
+
+    normalized = normalize_skeleton(raw_skeleton)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(normalized, f)
+
+    _reference_norm_cache[video_id] = normalized
+    return normalized
+
+
+def _closest_reference_index(ref_timestamps_ms: list[float], ref_time_ms: float) -> int:
+    if not ref_timestamps_ms:
+        return 0
+    idx = bisect_left(ref_timestamps_ms, ref_time_ms)
+    if idx <= 0:
+        return 0
+    if idx >= len(ref_timestamps_ms):
+        return len(ref_timestamps_ms) - 1
+    left = ref_timestamps_ms[idx - 1]
+    right = ref_timestamps_ms[idx]
+    return idx - 1 if abs(ref_time_ms - left) <= abs(right - ref_time_ms) else idx
+
+
+def _primary_angle_for_exercise(exercise: str, angles: dict[str, float]) -> float:
+    if exercise in {"squat", "lunge"}:
+        return (angles.get("left_knee", 0.0) + angles.get("right_knee", 0.0)) / 2.0
+    if exercise == "deadlift":
+        return (angles.get("left_hip", 0.0) + angles.get("right_hip", 0.0)) / 2.0
+    if exercise in {"pushup", "shoulder_press"}:
+        return (angles.get("left_elbow", 0.0) + angles.get("right_elbow", 0.0)) / 2.0
+    return (angles.get("left_knee", 0.0) + angles.get("right_knee", 0.0)) / 2.0
+
+
+def _state_machine_for_exercise(exercise: str) -> ExerciseStateMachine:
+    if exercise in {"squat", "lunge"}:
+        return ExerciseStateMachine(down_threshold=120.0, up_threshold=155.0, hold_frames=4)
+    if exercise == "deadlift":
+        return ExerciseStateMachine(down_threshold=100.0, up_threshold=150.0, hold_frames=3)
+    if exercise == "pushup":
+        return ExerciseStateMachine(down_threshold=95.0, up_threshold=155.0, hold_frames=3)
+    if exercise == "shoulder_press":
+        return ExerciseStateMachine(down_threshold=90.0, up_threshold=150.0, hold_frames=3)
+    return ExerciseStateMachine()
+
+
+def _compute_live_velocities(
+    state: LiveSessionState,
+    live_angles: dict[str, float],
+    now_ms: float,
+) -> dict[str, float]:
+    if state.last_live_angles is None or state.last_live_ts_ms is None:
+        state.last_live_angles = dict(live_angles)
+        state.last_live_ts_ms = now_ms
+        return {joint: 0.0 for joint in live_angles}
+
+    dt_s = max((now_ms - state.last_live_ts_ms) / 1000.0, 1e-3)
+    velocities: dict[str, float] = {}
+    for joint, curr in live_angles.items():
+        prev = state.last_live_angles.get(joint, curr)
+        velocities[joint] = round((curr - prev) / dt_s, 2)
+
+    state.last_live_angles = dict(live_angles)
+    state.last_live_ts_ms = now_ms
+    return velocities
+
+
+def _compute_bone_statuses(best_match: dict) -> dict[str, str]:
+    bone_statuses: dict[str, str] = {}
+    for bone in POSE_CONNECTIONS:
+        key = f"{bone[0]}-{bone[1]}"
+        joint_name = _BONE_JOINT_MAP.get((bone[0], bone[1])) or _BONE_JOINT_MAP.get((bone[1], bone[0]))
+        if joint_name and joint_name in best_match and isinstance(best_match[joint_name], dict):
+            bone_statuses[key] = best_match[joint_name].get("status", "good")
+        else:
+            bone_statuses[key] = "good"
+    return bone_statuses
+
+
+def _compute_joint_statuses(best_match: dict) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    for joint_name in _JOINT_LANDMARK_IDX:
+        if joint_name in best_match and isinstance(best_match[joint_name], dict):
+            statuses[joint_name] = best_match[joint_name].get("status", "good")
+    if "torso_lean" in best_match and isinstance(best_match["torso_lean"], dict):
+        statuses["torso_lean"] = best_match["torso_lean"].get("status", "good")
+    return statuses
+
+
+def _compute_correction_arrows(
+    best_match: dict, live_landmarks: list[dict],
+) -> list[dict]:
+    joint_errors: list[tuple[str, float]] = []
+    for joint_name, idx in _JOINT_LANDMARK_IDX.items():
+        if joint_name in best_match and isinstance(best_match[joint_name], dict):
+            data = best_match[joint_name]
+            if data.get("status") != "good":
+                joint_errors.append((joint_name, data.get("diff", 0.0)))
+
+    joint_errors.sort(key=lambda x: abs(x[1]), reverse=True)
+    arrows: list[dict] = []
+    for joint_name, diff in joint_errors[:3]:
+        idx = _JOINT_LANDMARK_IDX.get(joint_name)
+        if idx is None or idx >= len(live_landmarks):
+            continue
+        lm = live_landmarks[idx]
+        arrow_mag = min(0.08, max(0.03, abs(diff) * 0.001))
+        dx, dy = 0.0, 0.0
+        if "knee" in joint_name or "hip" in joint_name:
+            dy = arrow_mag if diff > 0 else -arrow_mag
+        elif "elbow" in joint_name or "shoulder" in joint_name:
+            side = -1 if "left" in joint_name else 1
+            dx = side * arrow_mag if diff < 0 else -side * arrow_mag
+        arrows.append({
+            "landmark_idx": idx,
+            "x": lm["x"],
+            "y": lm["y"],
+            "dx": round(dx, 4),
+            "dy": round(dy, 4),
+            "joint": joint_name,
+            "status": best_match[joint_name].get("status", "warning"),
+        })
+    return arrows
+
+
+def _live_session_key(user_id: str, ref_id: str, exercise: str) -> str:
+    return f"{user_id}:{ref_id}:{exercise}"
+
+
+def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveSessionState:
+    key = _live_session_key(user_id, ref_id, exercise)
+    existing = _http_live_states.get(key)
+    if existing is not None:
+        return existing
+
+    gt_norm = _load_or_extract_reference_norm(ref_id)
+    ref_timestamps_ms = [float(frame.get("timestamp_ms", 0.0)) for frame in gt_norm]
+    state = LiveSessionState(
+        user_id=user_id,
+        ref_video_id=ref_id,
+        exercise=exercise,
+        gt_norm=gt_norm,
+        ref_timestamps_ms=ref_timestamps_ms,
+        phase_machine=_state_machine_for_exercise(exercise),
+    )
+    _http_live_states[key] = state
+    return state
+
+
+def _process_live_frame_message(
+    state: LiveSessionState,
+    live_frame: str,
+    ref_time_ms: float,
+) -> dict:
+    total_t0 = time.perf_counter()
+    decode_t0 = time.perf_counter()
+    live_img = _decode_data_url_to_bgr(live_frame)
+    decode_ms = (time.perf_counter() - decode_t0) * 1000.0
+    if live_img is None:
+        return {"type": "error", "error": "invalid_live_frame"}
+
+    detect_t0 = time.perf_counter()
+    raw_landmarks = _extract_landmarks(live_img)
+    detect_ms = (time.perf_counter() - detect_t0) * 1000.0
+    if not raw_landmarks:
+        state.landmark_smoother.reset()
+        payload = {
+            "type": "no_pose",
+            "pose_detected": False,
+            "match_score": None,
+            "connections": POSE_CONNECTIONS,
+            "live_landmarks": None,
+            "ref_landmarks": None,
+            "joint_statuses": {},
+            "bone_statuses": {},
+            "correction_arrows": [],
+            "coaching_text": "Step fully into frame",
+            "feedback": {
+                "headline": "No pose detected",
+                "priority_fix": "Step fully into frame",
+                "top_joint_feedback": [],
+                "velocity_feedback": [],
+                "symmetry_warnings": [],
+            },
+            "phase": state.phase_machine.phase,
+            "rep_count": int(state.phase_machine.rep_count),
+        }
+        if LIVE_MATCH_DEBUG_TIMINGS:
+            payload["timings"] = {
+                "decode_ms": round(decode_ms, 2),
+                "detect_ms": round(detect_ms, 2),
+                "match_ms": 0.0,
+                "total_ms": round((time.perf_counter() - total_t0) * 1000.0, 2),
+            }
+        return payload
+
+    live_landmarks = state.landmark_smoother.smooth(
+        time.time(), raw_landmarks,
+    )
+    live_angles = _extract_angles(live_landmarks)
+    now_ms = time.time() * 1000.0
+    live_velocities = _compute_live_velocities(state, live_angles, now_ms)
+
+    user_frame = {
+        "angles": live_angles,
+        "velocities": live_velocities,
+    }
+
+    match_t0 = time.perf_counter()
+    base_idx = _closest_reference_index(state.ref_timestamps_ms, ref_time_ms)
+    window_start = max(0, base_idx - LIVE_MATCH_WINDOW)
+    window_end = min(len(state.gt_norm) - 1, base_idx + LIVE_MATCH_WINDOW)
+
+    best_idx = base_idx
+    best_match = None
+    best_score = -1.0
+    weights = get_weights(state.exercise)
+
+    for idx in range(window_start, window_end + 1):
+        candidate = state.gt_norm[idx]
+        candidate_match = match_single_frame(
+            candidate,
+            user_frame,
+            exercise_weights=weights,
+        )
+        candidate_score = float(candidate_match.get("overall_score", 0.0))
+        if candidate_score > best_score:
+            best_score = candidate_score
+            best_idx = idx
+            best_match = candidate_match
+
+    if not best_match:
+        return {"type": "error", "error": "matching_failed"}
+
+    state.smoothed_score = 0.3 * best_score + 0.7 * state.smoothed_score
+    best_match["overall_score"] = state.smoothed_score
+
+    summary_stub = {
+        "overall_score": state.smoothed_score,
+        "per_joint_avg_error": {},
+        "worst_joint": "",
+        "best_joint": "",
+        "frame_scores": [],
+    }
+    feedback = generate_feedback(summary_stub, best_match)
+    primary_angle = _primary_angle_for_exercise(state.exercise, live_angles)
+    phase = state.phase_machine.update(primary_angle, state.smoothed_score)
+
+    gt_frame = state.gt_norm[best_idx]
+
+    joint_statuses = _compute_joint_statuses(best_match)
+    bone_statuses = _compute_bone_statuses(best_match)
+    correction_arrows = _compute_correction_arrows(best_match, live_landmarks)
+
+    joint_fb = feedback.get("joint_feedback", [])
+    coaching_text = joint_fb[0]["instruction"] if joint_fb else (
+        "Great form!" if state.smoothed_score >= 80 else feedback.get("priority_fix", "")
+    )
+
+    payload = {
+        "type": "frame_result",
+        "pose_detected": True,
+        "match_score": int(round(state.smoothed_score)),
+        "matched_ref_frame_index": int(best_idx),
+        "matched_ref_source_frame": int(gt_frame.get("frame_index", best_idx)),
+        "joint_diffs": {k: v.get("abs_diff", 0.0) for k, v in best_match.items() if isinstance(v, dict) and "abs_diff" in v},
+        "joint_statuses": joint_statuses,
+        "bone_statuses": bone_statuses,
+        "correction_arrows": correction_arrows,
+        "coaching_text": coaching_text,
+        "connections": POSE_CONNECTIONS,
+        "live_landmarks": live_landmarks,
+        "ref_landmarks": gt_frame.get("landmarks", []),
+        "feedback": {
+            "headline": feedback.get("headline", ""),
+            "priority_fix": feedback.get("priority_fix", ""),
+            "top_joint_feedback": feedback.get("joint_feedback", [])[:3],
+            "velocity_feedback": feedback.get("velocity_feedback", []),
+            "symmetry_warnings": feedback.get("symmetry_warnings", []),
+        },
+        "phase": phase,
+        "rep_count": int(state.phase_machine.rep_count),
+    }
+    if LIVE_MATCH_DEBUG_TIMINGS:
+        payload["timings"] = {
+            "decode_ms": round(decode_ms, 2),
+            "detect_ms": round(detect_ms, 2),
+            "match_ms": round((time.perf_counter() - match_t0) * 1000.0, 2),
+            "total_ms": round((time.perf_counter() - total_t0) * 1000.0, 2),
+        }
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Auth decorators
 # ---------------------------------------------------------------------------
@@ -111,7 +653,6 @@ def require_auth(f):
         payload = _decode_token(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        # Verify session still exists in DB
         session = db.session.find_unique(where={"token": token})
         if not session or session.expiresAt < datetime.now(timezone.utc):
             return jsonify({"error": "Session expired, please log in again"}), 401
@@ -218,7 +759,6 @@ def login():
 
     token = _make_token(user)
 
-    # Upsert session (one active session per login; old tokens still valid until expiry)
     db.session.create(data={
         "id":        str(uuid.uuid4()),
         "userId":    user.id,
@@ -253,12 +793,26 @@ def me():
 
 @app.route("/api/exercises", methods=["GET"])
 def list_exercises():
-    videos = db.video.find_many(where={"status": "approved"})
-    seen: dict[str, str] = {}
+    videos = db.video.find_many(
+        where={"status": "approved"},
+        include={"uploader": True},
+        order={"uploadedAt": "desc"},
+    )
+    seen: dict[str, dict] = {}
     for v in videos:
         if v.exercise not in seen:
-            seen[v.exercise] = v.id
-    return jsonify([{"exercise": ex, "video_id": vid} for ex, vid in seen.items()])
+            seen[v.exercise] = {
+                "exercise": v.exercise,
+                "video_id": v.id,
+                "uploaded_at": v.uploadedAt.isoformat(),
+                "uploader": {
+                    "id": v.uploader.id if v.uploader else None,
+                    "username": v.uploader.username if v.uploader else "unknown",
+                    "email": v.uploader.email if v.uploader else None,
+                    "created_at": v.uploader.createdAt.isoformat() if v.uploader else None,
+                },
+            }
+    return jsonify(list(seen.values()))
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +833,167 @@ def stream_video(video_id: str):
         abort(404)
 
     return send_file(path, mimetype="video/mp4")
+
+
+@app.route("/api/video-meta/<video_id>", methods=["GET"])
+@require_auth
+def video_meta(video_id: str):
+    record = db.video.find_unique(where={"id": video_id}, include={"uploader": True})
+    if not record:
+        abort(404)
+
+    return jsonify({
+        "id": record.id,
+        "exercise": record.exercise,
+        "status": str(record.status),
+        "uploaded_at": record.uploadedAt.isoformat(),
+        "reviewed_at": record.reviewedAt.isoformat() if record.reviewedAt else None,
+        "uploader": {
+            "id": record.uploader.id if record.uploader else None,
+            "username": record.uploader.username if record.uploader else "unknown",
+            "email": record.uploader.email if record.uploader else None,
+            "created_at": record.uploader.createdAt.isoformat() if record.uploader else None,
+        },
+    })
+
+
+@app.route("/api/match-frames", methods=["POST"])
+@require_auth
+def match_frames():
+    data = request.get_json(silent=True) or {}
+    live_frame = data.get("live_frame")
+    ref_frame = data.get("ref_frame")
+
+    if not live_frame or not ref_frame:
+        return jsonify({"error": "live_frame and ref_frame are required"}), 400
+
+    live_img = _decode_data_url_to_bgr(live_frame)
+    ref_img = _decode_data_url_to_bgr(ref_frame)
+
+    if live_img is None or ref_img is None:
+        return jsonify({"error": "invalid frame payload"}), 400
+
+    live_landmarks = _extract_landmarks(live_img)
+    ref_landmarks = _extract_landmarks(ref_img)
+
+    if not live_landmarks or not ref_landmarks:
+        return jsonify({
+            "live_landmarks": live_landmarks,
+            "ref_landmarks": ref_landmarks,
+            "pose_detected": False,
+            "match_score": None,
+            "joint_diffs": {},
+            "connections": POSE_CONNECTIONS,
+        })
+
+    live_angles = _extract_angles(live_landmarks)
+    ref_angles = _extract_angles(ref_landmarks)
+    match_score, joint_diffs = _compute_match_score(ref_angles, live_angles)
+
+    return jsonify({
+        "live_landmarks": live_landmarks,
+        "ref_landmarks": ref_landmarks,
+        "pose_detected": True,
+        "match_score": match_score,
+        "joint_diffs": joint_diffs,
+        "connections": POSE_CONNECTIONS,
+    })
+
+
+@app.route("/api/live-match/<ref_id>", methods=["POST"])
+@require_auth
+def live_match_http(ref_id: str):
+    data = request.get_json(silent=True) or {}
+    live_frame = data.get("live_frame")
+    ref_time_ms = float(data.get("ref_time_ms") or 0.0)
+    exercise = (data.get("exercise") or "default").strip().lower()
+
+    if not live_frame:
+        return jsonify({"error": "live_frame is required"}), 400
+
+    try:
+        state = _get_or_create_live_state(str(request.user["sub"]), ref_id, exercise)
+        payload = _process_live_frame_message(state, live_frame, ref_time_ms)
+    except FileNotFoundError:
+        return jsonify({"error": "reference not found"}), 404
+    except Exception as exc:
+        return jsonify({"error": f"live match failed: {exc}"}), 500
+
+    if payload.get("type") == "error":
+        return jsonify(payload), 400
+    return jsonify(payload)
+
+
+if sock is not None:
+    @sock.route("/ws/live-match")
+    def ws_live_match(ws):
+        if not db.is_connected():
+            db.connect()
+
+        token = request.args.get("token", "")
+        ref_id = request.args.get("ref_id", "")
+        exercise = (request.args.get("exercise") or "default").strip().lower()
+
+        auth_payload = _decode_token_and_session(token)
+        if not auth_payload:
+            ws.send(json.dumps({"type": "error", "error": "unauthorized"}))
+            return
+        if not ref_id:
+            ws.send(json.dumps({"type": "error", "error": "ref_id is required"}))
+            return
+
+        try:
+            gt_norm = _load_or_extract_reference_norm(ref_id)
+        except Exception as exc:
+            ws.send(json.dumps({"type": "error", "error": f"reference_unavailable: {exc}"}))
+            return
+
+        if not gt_norm:
+            ws.send(json.dumps({"type": "error", "error": "reference_skeleton_empty"}))
+            return
+
+        state = LiveSessionState(
+            user_id=str(auth_payload["sub"]),
+            ref_video_id=ref_id,
+            exercise=exercise,
+            gt_norm=gt_norm,
+            ref_timestamps_ms=[float(frame.get("timestamp_ms", 0.0)) for frame in gt_norm],
+            phase_machine=_state_machine_for_exercise(exercise),
+        )
+
+        ws.send(json.dumps({
+            "type": "ready",
+            "exercise": exercise,
+            "frame_count": len(gt_norm),
+            "connections": POSE_CONNECTIONS,
+        }))
+
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                ws.send(json.dumps({"type": "error", "error": "invalid_json"}))
+                continue
+
+            if msg.get("type") == "ping":
+                ws.send(json.dumps({"type": "pong"}))
+                continue
+
+            if msg.get("type") != "frame":
+                continue
+
+            live_frame = msg.get("live_frame")
+            ref_time_ms = float(msg.get("ref_time_ms") or 0.0)
+            if not live_frame:
+                ws.send(json.dumps({"type": "error", "error": "live_frame required"}))
+                continue
+
+            payload = _process_live_frame_message(state, live_frame, ref_time_ms)
+            ws.send(json.dumps(payload))
 
 
 # ---------------------------------------------------------------------------
@@ -333,12 +1048,12 @@ def my_uploads():
     )
     return jsonify([{
         "id":           v.id,
-        "originalName": v.originalName,
+        "original_name": v.originalName,
         "exercise":     v.exercise,
         "status":       str(v.status),
-        "adminNote":    v.adminNote,
-        "uploadedAt":   v.uploadedAt.isoformat(),
-        "reviewedAt":   v.reviewedAt.isoformat() if v.reviewedAt else None,
+        "admin_note":   v.adminNote,
+        "uploaded_at":  v.uploadedAt.isoformat(),
+        "reviewed_at":  v.reviewedAt.isoformat() if v.reviewedAt else None,
     } for v in videos])
 
 
@@ -358,13 +1073,20 @@ def list_videos():
     )
     return jsonify([{
         "id":           v.id,
-        "originalName": v.originalName,
+        "original_name": v.originalName,
         "exercise":     v.exercise,
         "status":       str(v.status),
         "uploader":     v.uploader.username if v.uploader else "unknown",
-        "adminNote":    v.adminNote,
-        "uploadedAt":   v.uploadedAt.isoformat(),
-        "reviewedAt":   v.reviewedAt.isoformat() if v.reviewedAt else None,
+        "uploader_id":  v.uploader.id if v.uploader else None,
+        "uploader_profile": {
+            "id": v.uploader.id if v.uploader else None,
+            "username": v.uploader.username if v.uploader else "unknown",
+            "email": v.uploader.email if v.uploader else None,
+            "created_at": v.uploader.createdAt.isoformat() if v.uploader else None,
+        },
+        "admin_note":   v.adminNote,
+        "uploaded_at":  v.uploadedAt.isoformat(),
+        "reviewed_at":  v.reviewedAt.isoformat() if v.reviewedAt else None,
     } for v in videos])
 
 

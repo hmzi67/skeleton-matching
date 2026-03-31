@@ -18,6 +18,19 @@
     .tab { padding:7px 18px; border-radius:8px; border:1px solid #2d3148; background:transparent; color:#94a3b8; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
     .tab.active, .tab:hover { background:#1e2130; color:#e2e8f0; border-color:#6ee7f7; }
 
+    .filter-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px; }
+    .filter-input {
+      width:100%;
+      background:#0f1117;
+      border:1px solid #2d3148;
+      border-radius:10px;
+      color:#e2e8f0;
+      padding:10px 12px;
+      font-size:0.84rem;
+      outline:none;
+    }
+    .filter-input:focus { border-color:#6ee7f7; }
+
     .video-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; }
 
     .video-card { background:#1e2130; border:1px solid #2d3148; border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
@@ -34,6 +47,8 @@
     .action-row .btn { flex:1; padding:9px; font-size:0.83rem; }
 
     .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+
+    @media (max-width:700px) { .filter-row { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -61,6 +76,13 @@
       <button class="tab" data-filter="">All</button>
     </div>
 
+    <div class="filter-row">
+      <select id="uploaderSelect" class="filter-input">
+        <option value="">All uploaders</option>
+      </select>
+      <input id="uploaderSearch" class="filter-input" placeholder="Search uploader username or email" />
+    </div>
+
     <div class="video-grid" id="videoGrid"></div>
   </div>
 
@@ -78,7 +100,7 @@
       </div>`;
 
     const toast = document.getElementById('toast');
-    let allVideos = [], currentFilter = 'pending';
+    let allVideos = [], currentFilter = 'pending', uploaderFilter = '', uploaderSearch = '';
 
     function showToast(msg, type = 'success') {
       toast.textContent = msg;
@@ -91,6 +113,7 @@
         const res = await Auth.apiFetch('/api/videos');
         if (!res.ok) return;
         allVideos = await res.json();
+        updateUploaderOptions();
         updateStats();
         renderGrid();
       } catch {
@@ -104,12 +127,44 @@
       document.getElementById('statRejected').textContent = allVideos.filter(v => v.status === 'rejected').length;
     }
 
+    function updateUploaderOptions() {
+      const select = document.getElementById('uploaderSelect');
+      const byId = new Map();
+
+      allVideos.forEach(v => {
+        if (!v.uploader_id || byId.has(v.uploader_id)) return;
+        byId.set(v.uploader_id, v.uploader_profile || { username: v.uploader, email: '' });
+      });
+
+      const opts = [`<option value="">All uploaders</option>`];
+      Array.from(byId.entries())
+        .sort((a, b) => (a[1].username || '').localeCompare(b[1].username || ''))
+        .forEach(([id, profile]) => {
+          const label = profile.email ? `${profile.username} (${profile.email})` : profile.username;
+          opts.push(`<option value="${id}">${label}</option>`);
+        });
+
+      select.innerHTML = opts.join('');
+      select.value = uploaderFilter;
+    }
+
     function renderGrid() {
       const grid     = document.getElementById('videoGrid');
-      const filtered = currentFilter ? allVideos.filter(v => v.status === currentFilter) : allVideos;
+      const filtered = allVideos.filter(v => {
+        if (currentFilter && v.status !== currentFilter) return false;
+        if (uploaderFilter && v.uploader_id !== uploaderFilter) return false;
+
+        if (uploaderSearch) {
+          const profile = v.uploader_profile || {};
+          const haystack = `${profile.username || ''} ${profile.email || ''}`.toLowerCase();
+          return haystack.includes(uploaderSearch.toLowerCase());
+        }
+
+        return true;
+      });
 
       if (filtered.length === 0) {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">📭</div><p>No ${currentFilter || ''} videos.</p></div>`;
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">📭</div><p>No matching videos for the selected uploader filter.</p></div>`;
         return;
       }
 
@@ -125,7 +180,9 @@
             </div>
             <div class="card-meta">
               <strong>File:</strong> ${v.original_name}<br>
-              <strong>By:</strong> ${v.uploader}<br>
+              <strong>Uploader:</strong> ${v.uploader_profile?.username || v.uploader}<br>
+              <strong>Email:</strong> ${v.uploader_profile?.email || 'N/A'}<br>
+              <strong>Member since:</strong> ${v.uploader_profile?.created_at ? new Date(v.uploader_profile.created_at).toLocaleDateString() : 'N/A'}<br>
               <strong>Uploaded:</strong> ${new Date(v.uploaded_at).toLocaleString()}
               ${v.reviewed_at ? `<br><strong>Reviewed:</strong> ${new Date(v.reviewed_at).toLocaleString()}` : ''}
             </div>
@@ -181,6 +238,16 @@
         currentFilter = tab.dataset.filter;
         renderGrid();
       });
+    });
+
+    document.getElementById('uploaderSelect').addEventListener('change', e => {
+      uploaderFilter = e.target.value;
+      renderGrid();
+    });
+
+    document.getElementById('uploaderSearch').addEventListener('input', e => {
+      uploaderSearch = e.target.value.trim();
+      renderGrid();
     });
 
     loadVideos();

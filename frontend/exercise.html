@@ -4,110 +4,913 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Exercise — Pose Matcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
   <style>
-    body { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
     .topbar {
-      display:flex; align-items:center; justify-content:space-between;
-      padding:12px 24px; border-bottom:1px solid #1e2130; flex-shrink:0;
-      flex-wrap:wrap; gap:10px;
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between;
+      padding: 14px 24px; 
+      background: rgba(18, 18, 18, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #222; 
+      flex-shrink: 0;
+      flex-wrap: wrap; 
+      gap: 12px;
     }
 
-    .topbar-left { display:flex; align-items:center; gap:14px; }
+    .topbar-left { display: flex; align-items: center; gap: 16px; }
 
-    .ex-title { font-size:1.05rem; font-weight:700; text-transform:capitalize; }
+    .ex-title { font-size: 1.1rem; font-weight: 700; text-transform: capitalize; color: #fff; }
 
-    .cam-btn { padding:8px 20px; border-radius:8px; border:none; font-size:0.85rem; font-weight:600; cursor:pointer; transition:opacity 0.2s; }
-    .cam-btn.start { background:#166534; color:#86efac; }
-    .cam-btn.stop  { background:#7f1d1d; color:#fca5a5; }
+    .uploader-chip {
+      font-size: 0.76rem;
+      color: #a3a3a3;
+      border: 1px solid #333;
+      border-radius: 999px;
+      padding: 5px 12px;
+      white-space: nowrap;
+    }
 
-    .split { flex:1; display:grid; grid-template-columns:1fr 1fr; min-height:0; }
+    .cam-btn { 
+      padding: 10px 22px; 
+      border-radius: 50px; 
+      border: none; 
+      font-size: 0.88rem; 
+      font-weight: 600; 
+      cursor: pointer; 
+      transition: all 0.2s;
+    }
+    .cam-btn.start { background: #c9f31d; color: #0a0a0a; }
+    .cam-btn.start:hover { background: #d4f73d; }
+    .cam-btn.stop { background: #7f1d1d; color: #fca5a5; }
+    .cam-btn.stop:hover { background: #991b1b; }
 
-    .panel { position:relative; background:#000; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-    .panel:first-child { border-right:2px solid #1e2130; }
+    .phase-chip,
+    .rep-chip {
+      font-size: 0.76rem;
+      color: #d4d4d4;
+      border: 1px solid #333;
+      border-radius: 999px;
+      padding: 5px 12px;
+    }
+
+    .phase-chip { border-color: #0f766e; color: #67e8f9; }
+    .rep-chip { border-color: #166534; color: #86efac; }
+
+    .split { flex: 1; display: grid; grid-template-columns: 1fr auto 1fr; min-height: 0; }
+
+    .center-gauge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #0d0d0d;
+      border-left: 2px solid #1a1a1a;
+      border-right: 2px solid #1a1a1a;
+    }
+
+    .panel { 
+      position: relative; 
+      background: #0a0a0a; 
+      overflow: hidden; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+    }
 
     .panel-label {
-      position:absolute; top:12px; left:12px; z-index:10;
-      background:rgba(15,17,23,0.8); backdrop-filter:blur(6px);
-      border:1px solid #2d3148; border-radius:8px;
-      padding:4px 12px; font-size:0.75rem; font-weight:700;
-      letter-spacing:0.06em; text-transform:uppercase; color:#94a3b8;
+      position: absolute; 
+      top: 14px; 
+      left: 14px; 
+      z-index: 10;
+      background: rgba(10, 10, 10, 0.85); 
+      backdrop-filter: blur(8px);
+      border: 1px solid #333; 
+      border-radius: 10px;
+      padding: 6px 14px; 
+      font-size: 0.75rem; 
+      font-weight: 700;
+      letter-spacing: 0.06em; 
+      text-transform: uppercase; 
+      color: #a3a3a3;
     }
 
-    .panel-label.live { border-color:#22c55e; color:#4ade80; }
-    .panel-label.ref  { border-color:#6ee7f7; color:#6ee7f7; }
+    .panel-label.live { border-color: #22c55e; color: #4ade80; }
+    .panel-label.ref { border-color: #c9f31d; color: #c9f31d; }
 
-    .live-dot { display:inline-block; width:7px; height:7px; background:#22c55e; border-radius:50%; margin-right:5px; animation:blink 1.2s ease-in-out infinite; }
+    .live-dot { 
+      display: inline-block; 
+      width: 7px; 
+      height: 7px; 
+      background: #22c55e; 
+      border-radius: 50%; 
+      margin-right: 6px; 
+      animation: blink 1.2s ease-in-out infinite; 
+    }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
-    .panel video { width:100%; height:100%; object-fit:cover; display:block; }
+    .panel video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ref-video { pointer-events: none; }
+    .overlay-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 6;
+    }
 
-    .placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#334155; text-align:center; padding:20px; }
-    .placeholder .icon { font-size:3.5rem; }
-    .placeholder p { font-size:0.88rem; }
+    .coaching-overlay {
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 12;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fca5a5;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid #7f1d1d;
+      border-radius: 14px;
+      padding: 10px 22px;
+      text-align: center;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .coaching-overlay.visible { opacity: 1; }
+    .coaching-overlay.good { color: #86efac; border-color: #166534; }
 
-    .cam-error { display:none; position:absolute; bottom:14px; left:50%; transform:translateX(-50%); background:#450a0a; border:1px solid #7f1d1d; color:#fca5a5; border-radius:8px; padding:10px 18px; font-size:0.85rem; z-index:20; white-space:nowrap; }
-    .cam-error.visible { display:block; }
+    .placeholder { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center; 
+      gap: 14px; 
+      color: #404040; 
+      text-align: center; 
+      padding: 20px; 
+    }
+    .placeholder .icon { 
+      width: 72px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 18px;
+      color: #525252;
+    }
+    .placeholder p { font-size: 0.9rem; }
 
-    @media (max-width:600px) {
-      .split { grid-template-columns:1fr; grid-template-rows:1fr 1fr; }
-      .panel:first-child { border-right:none; border-bottom:2px solid #1e2130; }
+    .cam-error { 
+      display: none; 
+      position: absolute; 
+      bottom: 16px; 
+      left: 50%; 
+      transform: translateX(-50%); 
+      background: rgba(127, 29, 29, 0.9); 
+      border: 1px solid #7f1d1d; 
+      color: #fca5a5; 
+      border-radius: 10px; 
+      padding: 12px 20px; 
+      font-size: 0.88rem; 
+      z-index: 20; 
+      white-space: nowrap;
+      backdrop-filter: blur(8px);
+    }
+    .cam-error.visible { display: block; }
+
+    .insights {
+      border-top: 1px solid #1a1a1a;
+      padding: 12px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      background: #0f0f0f;
+    }
+
+    .insight-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .priority { font-size: 0.82rem; color: #e5e5e5; }
+    .priority span { color: #a3a3a3; }
+
+    .feedback-row,
+    .warn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 18px 12px;
+      background: #0f0f0f;
+    }
+
+    .feedback-badge {
+      font-size: 0.76rem;
+      border: 1px solid #333;
+      border-radius: 999px;
+      padding: 5px 12px;
+      white-space: nowrap;
+    }
+
+    .feedback-badge.bad { border-color: #7f1d1d; color: #fecaca; background: rgba(43, 11, 11, 0.6); }
+    .feedback-badge.warning { border-color: #854d0e; color: #fde68a; background: rgba(43, 29, 11, 0.6); }
+    .feedback-badge.good { border-color: #166534; color: #bbf7d0; background: rgba(12, 37, 19, 0.6); }
+    .feedback-badge.info { border-color: #0e7490; color: #bae6fd; background: rgba(11, 30, 42, 0.6); }
+
+    #trendCanvas { 
+      width: 180px; 
+      height: 36px; 
+      border: 1px solid #333; 
+      border-radius: 10px; 
+      background: #141414; 
+    }
+
+    @media (max-width: 600px) {
+      .split { grid-template-columns: 1fr; grid-template-rows: 1fr auto 1fr; }
+      .center-gauge { flex-direction: row; padding: 6px 12px; border-left: none; border-right: none; border-top: 2px solid #1a1a1a; border-bottom: 2px solid #1a1a1a; }
+      #scoreGaugeCanvas { width: 60px; height: 60px; }
+      .insights { grid-template-columns: 1fr; }
+      #trendCanvas { width: 100%; }
     }
   </style>
 </head>
 <body>
   <div class="topbar">
     <div class="topbar-left">
-      <a href="/" class="btn btn-ghost" style="padding:6px 14px;font-size:0.85rem">← Back</a>
+      <a href="/" class="btn btn-ghost" style="padding:8px 16px;font-size:0.88rem">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px">
+          <path d="M15 8H3M8 4l-5 4 5 4"/>
+        </svg>
+        Back
+      </a>
       <span class="ex-title" id="exTitle">Exercise</span>
+      <span class="uploader-chip" id="uploaderChip">Uploader: loading...</span>
     </div>
-    <div style="display:flex;align-items:center;gap:10px">
-      <span id="navUser" style="font-size:0.85rem;color:#64748b"></span>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span id="navUser" style="font-size:0.88rem;color:#737373"></span>
       <button class="cam-btn start" id="camBtn">Start Camera</button>
     </div>
   </div>
 
   <div class="split">
-    <!-- Live camera -->
     <div class="panel">
       <div class="panel-label live"><span class="live-dot"></span>Your Camera</div>
       <div class="placeholder" id="camPlaceholder">
-        <div class="icon">📷</div>
+        <div class="icon">
+          <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 01-2 2H5a2 2 0 01-2-2V9a2 2 0 012-2h16a2 2 0 012 2z"/>
+            <polygon points="23 10 29 6 29 20 23 16 23 10"/>
+          </svg>
+        </div>
         <p>Press "Start Camera" to begin</p>
       </div>
       <video id="liveVideo" autoplay playsinline muted style="display:none"></video>
+      <canvas id="liveCanvas" class="overlay-canvas"></canvas>
+      <div class="coaching-overlay" id="coachingOverlay"></div>
       <div class="cam-error" id="camError">Camera access denied. Please allow camera permissions.</div>
     </div>
 
-    <!-- Reference video -->
+    <div class="center-gauge">
+      <canvas id="scoreGaugeCanvas" width="100" height="100"></canvas>
+      <span class="phase-chip" id="phaseChip">Phase: READY</span>
+      <span class="rep-chip" id="repChip">Reps: 0</span>
+      <canvas id="trendCanvas" width="180" height="36"></canvas>
+    </div>
+
     <div class="panel">
       <div class="panel-label ref">Reference</div>
       <div class="placeholder" id="refPlaceholder">
-        <div class="icon">🎬</div>
-        <p id="refPlaceholderText">Loading reference…</p>
+        <div class="icon">
+          <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <polygon points="10 8 16 12 10 16 10 8"/>
+          </svg>
+        </div>
+        <p id="refPlaceholderText">Loading reference...</p>
       </div>
-      <video id="refVideo" loop controls style="display:none"></video>
+      <video id="refVideo" loop playsinline muted preload="auto" class="ref-video" style="display:none"></video>
+      <canvas id="refCanvas" class="overlay-canvas"></canvas>
     </div>
   </div>
+
+  <div class="insights">
+    <div class="insight-left">
+      <span class="priority" id="priorityText"><span>Priority:</span> --</span>
+    </div>
+    <canvas id="trendCanvasBottom" width="180" height="36" style="display:none"></canvas>
+  </div>
+  <div class="feedback-row" id="feedbackRow"></div>
+  <div class="warn-row" id="warnRow"></div>
 
   <script src="/auth.js"></script>
   <script>
     Auth.guard();
 
-    const params   = new URLSearchParams(location.search);
+    const params = new URLSearchParams(location.search);
     const exercise = params.get('exercise') || 'Exercise';
-    const refId    = params.get('ref');
-    const user     = Auth.getUser();
+    const refId = params.get('ref');
+    const user = Auth.getUser();
 
     document.getElementById('exTitle').textContent = exercise.replace(/_/g, ' ');
-    document.getElementById('navUser').textContent = `👤 ${user.username}`;
+    document.getElementById('navUser').textContent = user.username;
     document.title = `${exercise.replace(/_/g,' ')} — Pose Matcher`;
 
-    // Reference video — needs auth header; use blob URL trick
-    const refVideo       = document.getElementById('refVideo');
+    const CAPTURE_WIDTH = 256;
+    const CAPTURE_HEIGHT = 192;
+    const CAPTURE_JPEG_QUALITY = 0.6;
+    const MAX_SEND_FPS = 11;
+    const SEND_INTERVAL_MS = Math.round(1000 / MAX_SEND_FPS);
+
+    const refVideo = document.getElementById('refVideo');
     const refPlaceholder = document.getElementById('refPlaceholder');
     const refPlaceholderText = document.getElementById('refPlaceholderText');
+    const uploaderChip = document.getElementById('uploaderChip');
+    const phaseChip = document.getElementById('phaseChip');
+    const repChip = document.getElementById('repChip');
+    const priorityText = document.getElementById('priorityText');
+    const feedbackRow = document.getElementById('feedbackRow');
+    const warnRow = document.getElementById('warnRow');
+    const liveCanvas = document.getElementById('liveCanvas');
+    const refCanvas = document.getElementById('refCanvas');
+    const liveCtx = liveCanvas.getContext('2d');
+    const refCtx = refCanvas.getContext('2d');
+    const trendCanvas = document.getElementById('trendCanvas');
+    const trendCtx = trendCanvas.getContext('2d');
+    const scoreGaugeCanvas = document.getElementById('scoreGaugeCanvas');
+    const scoreGaugeCtx = scoreGaugeCanvas.getContext('2d');
+    const coachingOverlay = document.getElementById('coachingOverlay');
+    const liveCaptureCanvas = document.createElement('canvas');
+    const liveCaptureCtx = liveCaptureCanvas.getContext('2d');
+
+    const camBtn = document.getElementById('camBtn');
+    const liveVideo = document.getElementById('liveVideo');
+    const camPlaceholder = document.getElementById('camPlaceholder');
+    const camError = document.getElementById('camError');
+
+    let stream = null;
+    let frameBusy = false;
+    let frameInFlight = false;
+    let lastFrameSentAt = 0;
+    let ws = null;
+    let wsTickTimer = null;
+    let httpFallbackTimer = null;
+    let scoreHistory = [];
+    let targetScore = 0;
+    let animatedScore = 0;
+    let gaugeAnimFrame = null;
+
+    // ── One Euro Filter (JS port) ──
+    class LowPassFilter {
+      constructor(alpha, initval = 0.0) {
+        this.y = this.s = initval;
+        this.a = alpha;
+      }
+      set alpha(a) { this.a = a; }
+      filter(value) {
+        this.y = value;
+        this.s = this.a * value + (1 - this.a) * this.s;
+        return this.s;
+      }
+    }
+
+    class OneEuroFilter {
+      constructor(freq = 30.0, mincutoff = 1.0, beta = 0.007, dcutoff = 1.0) {
+        this.freq = freq;
+        this.mincutoff = mincutoff;
+        this.beta = beta;
+        this.dcutoff = dcutoff;
+        this.x = new LowPassFilter(this._alpha(mincutoff));
+        this.dx = new LowPassFilter(this._alpha(dcutoff), 0.0);
+        this.lasttime = null;
+      }
+      _alpha(cutoff) {
+        const te = 1.0 / this.freq;
+        const tau = 1.0 / (2 * Math.PI * cutoff);
+        return 1.0 / (1.0 + tau / te);
+      }
+      filter(x, timestamp = null) {
+        if (this.lasttime !== null && timestamp !== null) {
+          this.freq = 1.0 / Math.max(timestamp - this.lasttime, 1e-6);
+        }
+        this.lasttime = timestamp;
+        const dx = this.x.s !== undefined ? (x - this.x.s) * this.freq : 0.0;
+        const edx = this.dx.filter(dx);
+        const cutoff = this.mincutoff + this.beta * Math.abs(edx);
+        this.x.alpha = this._alpha(cutoff);
+        return this.x.filter(x);
+      }
+    }
+
+    class LandmarkSmoother {
+      constructor() { this.filters = {}; }
+      reset() { this.filters = {}; }
+      smooth(ts, landmarks) {
+        const out = [];
+        for (let i = 0; i < landmarks.length; i++) {
+          const lm = landmarks[i];
+          if (!this.filters[i]) {
+            this.filters[i] = {
+              x: new OneEuroFilter(30, 1.5, 0.01, 1.0),
+              y: new OneEuroFilter(30, 1.5, 0.01, 1.0),
+            };
+          }
+          out.push({
+            x: this.filters[i].x.filter(lm.x, ts),
+            y: this.filters[i].y.filter(lm.y, ts),
+            z: lm.z,
+            visibility: lm.visibility,
+          });
+        }
+        return out;
+      }
+    }
+
+    const liveSmoother = new LandmarkSmoother();
+
+    const STATUS_COLORS = { good: '#22c55e', warning: '#eab308', bad: '#ef4444' };
+
+    function setupCanvasSize(canvas, videoEl) {
+      const w = Math.max(2, Math.floor(videoEl.clientWidth || 0));
+      const h = Math.max(2, Math.floor(videoEl.clientHeight || 0));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+    }
+
+    function clearOverlays() {
+      liveCtx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+      refCtx.clearRect(0, 0, refCanvas.width, refCanvas.height);
+    }
+
+    function resetFeedbackUi() {
+      feedbackRow.innerHTML = '';
+      warnRow.innerHTML = '';
+      phaseChip.textContent = 'Phase: READY';
+      repChip.textContent = 'Reps: 0';
+      priorityText.innerHTML = '<span>Priority:</span> --';
+    }
+
+    function drawColoredSkeleton(ctx, canvas, landmarks, connections, boneStatuses, jointStatuses) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!landmarks || landmarks.length === 0) return;
+
+      const ts = performance.now() / 1000;
+      const smoothed = liveSmoother.smooth(ts, landmarks);
+
+      for (const [a, b] of connections || []) {
+        const p1 = smoothed[a];
+        const p2 = smoothed[b];
+        if (!p1 || !p2) continue;
+        const boneKey = `${a}-${b}`;
+        const status = (boneStatuses && boneStatuses[boneKey]) || 'good';
+        const color = STATUS_COLORS[status] || STATUS_COLORS.good;
+
+        ctx.save();
+        if (status !== 'good') {
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 10;
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = status === 'good' ? 3 : 4;
+        ctx.beginPath();
+        ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
+        ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const JOINT_LANDMARK_IDX = {
+        left_elbow: 13, right_elbow: 14,
+        left_knee: 25, right_knee: 26,
+        left_hip: 23, right_hip: 24,
+        left_shoulder: 11, right_shoulder: 12,
+      };
+      const landmarkJointMap = {};
+      for (const [jn, idx] of Object.entries(JOINT_LANDMARK_IDX)) { landmarkJointMap[idx] = jn; }
+
+      for (let i = 0; i < smoothed.length; i++) {
+        const p = smoothed[i];
+        if (!p) continue;
+        const jn = landmarkJointMap[i];
+        const status = jn && jointStatuses ? (jointStatuses[jn] || 'good') : 'good';
+        const color = STATUS_COLORS[status] || '#ffffff';
+        const radius = status === 'good' ? 4 : 6;
+
+        ctx.save();
+        if (status !== 'good') {
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 12;
+        }
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p.x * canvas.width, p.y * canvas.height, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawRefSkeleton(ctx, canvas, landmarks, connections) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!landmarks || landmarks.length === 0) return;
+
+      ctx.strokeStyle = 'rgba(110,231,247,0.5)';
+      ctx.lineWidth = 2;
+      for (const [a, b] of connections || []) {
+        const p1 = landmarks[a];
+        const p2 = landmarks[b];
+        if (!p1 || !p2) continue;
+        ctx.beginPath();
+        ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
+        ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = 'rgba(110,231,247,0.6)';
+      for (const p of landmarks) {
+        if (!p) continue;
+        ctx.beginPath();
+        ctx.arc(p.x * canvas.width, p.y * canvas.height, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawCorrectionArrows(ctx, canvas, arrows) {
+      if (!arrows || arrows.length === 0) return;
+
+      for (const arrow of arrows) {
+        const cx = arrow.x * canvas.width;
+        const cy = arrow.y * canvas.height;
+        const dx = arrow.dx * canvas.width;
+        const dy = arrow.dy * canvas.height;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 2) continue;
+
+        const color = STATUS_COLORS[arrow.status] || STATUS_COLORS.warning;
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + dx, cy + dy);
+        ctx.stroke();
+
+        const angle = Math.atan2(dy, dx);
+        const headLen = 10;
+        ctx.beginPath();
+        ctx.moveTo(cx + dx, cy + dy);
+        ctx.lineTo(cx + dx - headLen * Math.cos(angle - Math.PI / 6), cy + dy - headLen * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(cx + dx - headLen * Math.cos(angle + Math.PI / 6), cy + dy - headLen * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    function showCoachingText(text) {
+      if (!text) {
+        coachingOverlay.classList.remove('visible', 'good');
+        return;
+      }
+      coachingOverlay.textContent = text;
+      coachingOverlay.classList.add('visible');
+      if (text.toLowerCase().includes('great') || text.toLowerCase().includes('perfect') || text.toLowerCase().includes('good')) {
+        coachingOverlay.classList.add('good');
+      } else {
+        coachingOverlay.classList.remove('good');
+      }
+    }
+
+    function drawScoreGauge(score) {
+      const w = scoreGaugeCanvas.width;
+      const h = scoreGaugeCanvas.height;
+      const cx = w / 2;
+      const cy = h / 2;
+      const radius = Math.min(w, h) / 2 - 6;
+
+      scoreGaugeCtx.clearRect(0, 0, w, h);
+
+      scoreGaugeCtx.beginPath();
+      scoreGaugeCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+      scoreGaugeCtx.strokeStyle = '#222';
+      scoreGaugeCtx.lineWidth = 8;
+      scoreGaugeCtx.stroke();
+
+      const frac = Math.max(0, Math.min(1, score / 100));
+      const startAngle = -Math.PI / 2;
+      const endAngle = startAngle + frac * Math.PI * 2;
+      let color = '#ef4444';
+      if (score >= 80) color = '#22c55e';
+      else if (score >= 60) color = '#eab308';
+
+      scoreGaugeCtx.beginPath();
+      scoreGaugeCtx.arc(cx, cy, radius, startAngle, endAngle);
+      scoreGaugeCtx.strokeStyle = color;
+      scoreGaugeCtx.lineWidth = 8;
+      scoreGaugeCtx.lineCap = 'round';
+      scoreGaugeCtx.stroke();
+
+      scoreGaugeCtx.fillStyle = '#fff';
+      scoreGaugeCtx.font = 'bold 22px Inter, sans-serif';
+      scoreGaugeCtx.textAlign = 'center';
+      scoreGaugeCtx.textBaseline = 'middle';
+      scoreGaugeCtx.fillText(Math.round(score), cx, cy);
+    }
+
+    function animateGauge() {
+      const diff = targetScore - animatedScore;
+      if (Math.abs(diff) < 0.5) {
+        animatedScore = targetScore;
+        drawScoreGauge(animatedScore);
+        gaugeAnimFrame = null;
+        return;
+      }
+      animatedScore += diff * 0.15;
+      drawScoreGauge(animatedScore);
+      gaugeAnimFrame = requestAnimationFrame(animateGauge);
+    }
+
+    function drawTrend(score) {
+      if (typeof score === 'number') {
+        scoreHistory.push(score);
+        if (scoreHistory.length > 80) scoreHistory.shift();
+      }
+
+      trendCtx.clearRect(0, 0, trendCanvas.width, trendCanvas.height);
+      trendCtx.strokeStyle = '#c9f31d';
+      trendCtx.lineWidth = 2;
+
+      if (scoreHistory.length < 2) return;
+
+      trendCtx.beginPath();
+      scoreHistory.forEach((s, i) => {
+        const x = (i / (scoreHistory.length - 1)) * (trendCanvas.width - 2) + 1;
+        const y = (1 - Math.max(0, Math.min(100, s)) / 100) * (trendCanvas.height - 6) + 3;
+        if (i === 0) trendCtx.moveTo(x, y);
+        else trendCtx.lineTo(x, y);
+      });
+      trendCtx.stroke();
+    }
+
+    function renderFeedback(feedback, phase, repCount) {
+      phaseChip.textContent = `Phase: ${phase || 'READY'}`;
+      repChip.textContent = `Reps: ${repCount || 0}`;
+
+      if (!feedback) {
+        feedbackRow.innerHTML = '';
+        warnRow.innerHTML = '';
+        priorityText.innerHTML = '<span>Priority:</span> --';
+        return;
+      }
+
+      priorityText.innerHTML = `<span>Priority:</span> ${feedback.priority_fix || '--'}`;
+
+      const top = feedback.top_joint_feedback || [];
+      feedbackRow.innerHTML = top.map(item => {
+        const sev = item.severity === 'bad' ? 'bad' : item.severity === 'warning' ? 'warning' : 'good';
+        const joint = (item.joint || '').replace(/_/g, ' ');
+        const diff = typeof item.diff_degrees === 'number' ? `${Math.round(item.diff_degrees)}deg` : '';
+        return `<span class="feedback-badge ${sev}">${joint}: ${diff}</span>`;
+      }).join('');
+
+      const warns = [
+        ...(feedback.velocity_feedback || []).map(v => v.instruction),
+        ...(feedback.symmetry_warnings || []),
+      ].slice(0, 3);
+
+      warnRow.innerHTML = warns.map(text => `<span class="feedback-badge info">${text}</span>`).join('');
+    }
+
+    function setScore(score) {
+      if (typeof score !== 'number') {
+        targetScore = 0;
+        if (!gaugeAnimFrame) gaugeAnimFrame = requestAnimationFrame(animateGauge);
+        drawTrend(null);
+        return;
+      }
+      targetScore = score;
+      if (!gaugeAnimFrame) gaugeAnimFrame = requestAnimationFrame(animateGauge);
+      drawTrend(score);
+    }
+
+    function frameToDataUrl(videoEl, capCanvas, capCtx) {
+      capCanvas.width = CAPTURE_WIDTH;
+      capCanvas.height = CAPTURE_HEIGHT;
+      capCtx.drawImage(videoEl, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+      return capCanvas.toDataURL('image/jpeg', CAPTURE_JPEG_QUALITY);
+    }
+
+    function canCaptureAndMatch() {
+      return stream && refId && liveVideo.readyState >= 2 && refVideo.readyState >= 2 && !refVideo.paused;
+    }
+
+    function processFrameResult(data) {
+      setupCanvasSize(liveCanvas, liveVideo);
+      setupCanvasSize(refCanvas, refVideo);
+      drawColoredSkeleton(liveCtx, liveCanvas, data.live_landmarks, data.connections, data.bone_statuses, data.joint_statuses);
+      drawCorrectionArrows(liveCtx, liveCanvas, data.correction_arrows);
+      drawRefSkeleton(refCtx, refCanvas, data.ref_landmarks, data.connections);
+      setScore(data.match_score);
+      showCoachingText(data.coaching_text || '');
+      renderFeedback(data.feedback, data.phase, data.rep_count);
+    }
+
+    function processNoResult() {
+      clearOverlays();
+      setScore(null);
+      showCoachingText('');
+      renderFeedback(null, 'READY', 0);
+    }
+
+    async function runBackendMatchHttpFallback() {
+      if (frameBusy) return;
+      const now = performance.now();
+      if (now - lastFrameSentAt < SEND_INTERVAL_MS) return;
+      if (!canCaptureAndMatch()) return;
+
+      frameBusy = true;
+      lastFrameSentAt = now;
+      try {
+        setupCanvasSize(liveCanvas, liveVideo);
+        setupCanvasSize(refCanvas, refVideo);
+
+        const liveFrame = frameToDataUrl(liveVideo, liveCaptureCanvas, liveCaptureCtx);
+        const res = await Auth.apiFetch(`/api/live-match/${encodeURIComponent(refId)}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            live_frame: liveFrame,
+            ref_time_ms: refVideo.currentTime * 1000,
+            exercise,
+          }),
+        });
+
+        if (!res.ok) {
+          processNoResult();
+          return;
+        }
+
+        const data = await res.json();
+        if (data.type === 'frame_result') {
+          processFrameResult(data);
+        } else {
+          processNoResult();
+        }
+      } catch {
+        processNoResult();
+      } finally {
+        frameBusy = false;
+      }
+    }
+
+    function startHttpFallback() {
+      if (httpFallbackTimer) return;
+      httpFallbackTimer = setInterval(runBackendMatchHttpFallback, SEND_INTERVAL_MS);
+    }
+
+    function stopHttpFallback() {
+      if (httpFallbackTimer) {
+        clearInterval(httpFallbackTimer);
+        httpFallbackTimer = null;
+      }
+    }
+
+    function maybeSendWsFrame(force) {
+      if (frameInFlight && !force) return;
+      if (!canCaptureAndMatch()) return;
+      const now = performance.now();
+      if (!force && now - lastFrameSentAt < SEND_INTERVAL_MS) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      setupCanvasSize(liveCanvas, liveVideo);
+      setupCanvasSize(refCanvas, refVideo);
+
+      const liveFrame = frameToDataUrl(liveVideo, liveCaptureCanvas, liveCaptureCtx);
+      ws.send(JSON.stringify({
+        type: 'frame',
+        live_frame: liveFrame,
+        ref_time_ms: refVideo.currentTime * 1000,
+      }));
+      frameInFlight = true;
+      lastFrameSentAt = now;
+    }
+
+    function startWebSocketStream() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      const token = encodeURIComponent(Auth.getToken() || '');
+      const ref = encodeURIComponent(refId || '');
+      const ex = encodeURIComponent(exercise || 'default');
+      const wsUrl = `${protocol}://${location.host}/ws/live-match?token=${token}&ref_id=${ref}&exercise=${ex}`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        stopHttpFallback();
+        frameInFlight = false;
+        maybeSendWsFrame(true);
+        if (!wsTickTimer) {
+          wsTickTimer = setInterval(() => maybeSendWsFrame(false), SEND_INTERVAL_MS);
+        }
+      };
+
+      ws.onmessage = event => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'frame_result') {
+            frameInFlight = false;
+            processFrameResult(data);
+            maybeSendWsFrame(false);
+            return;
+          }
+          if (data.type === 'no_pose') {
+            frameInFlight = false;
+            processNoResult();
+            showCoachingText('Step fully into frame');
+            maybeSendWsFrame(false);
+            return;
+          }
+          if (data.type === 'error') {
+            frameInFlight = false;
+            maybeSendWsFrame(false);
+          }
+        } catch {
+          // Ignore malformed payloads.
+        }
+      };
+
+      ws.onerror = () => {
+        startHttpFallback();
+      };
+
+      ws.onclose = () => {
+        if (wsTickTimer) {
+          clearInterval(wsTickTimer);
+          wsTickTimer = null;
+        }
+        ws = null;
+        frameInFlight = false;
+        if (stream) startHttpFallback();
+      };
+    }
+
+    function stopWebSocketStream() {
+      if (wsTickTimer) {
+        clearInterval(wsTickTimer);
+        wsTickTimer = null;
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      ws = null;
+      frameInFlight = false;
+    }
+
+    function stopMatchingLoop() {
+      stopWebSocketStream();
+      stopHttpFallback();
+      clearOverlays();
+      setScore(null);
+      resetFeedbackUi();
+      showCoachingText('');
+      liveSmoother.reset();
+    }
+
+    async function loadVideoMeta() {
+      if (!refId) {
+        uploaderChip.textContent = 'Uploader: unavailable';
+        return;
+      }
+
+      try {
+        const res = await Auth.apiFetch(`/api/video-meta/${refId}`);
+        if (!res.ok) throw new Error();
+        const meta = await res.json();
+        const uploader = meta.uploader || {};
+        const joined = uploader.created_at ? new Date(uploader.created_at).toLocaleDateString() : null;
+        uploaderChip.textContent = joined
+          ? `Uploader: ${uploader.username} • member since ${joined}`
+          : `Uploader: ${uploader.username || 'unknown'}`;
+      } catch {
+        uploaderChip.textContent = 'Uploader: unavailable';
+      }
+    }
 
     async function loadRefVideo() {
       if (!refId) { refPlaceholderText.textContent = 'No approved reference for this exercise.'; return; }
@@ -116,21 +919,27 @@
         if (!res.ok) throw new Error();
         const blob = await res.blob();
         refVideo.src = URL.createObjectURL(blob);
+        refVideo.controls = false;
+        refVideo.muted = true;
+        refVideo.disablePictureInPicture = true;
         refVideo.style.display = 'block';
         refPlaceholder.style.display = 'none';
+        refVideo.addEventListener('playing', () => {
+          if (stream) startWebSocketStream();
+        });
+        refVideo.addEventListener('pause', () => {
+          clearOverlays();
+          setScore(null);
+          resetFeedbackUi();
+        });
       } catch {
         refPlaceholderText.textContent = 'Could not load reference video.';
       }
     }
 
     loadRefVideo();
-
-    // Camera
-    const camBtn         = document.getElementById('camBtn');
-    const liveVideo      = document.getElementById('liveVideo');
-    const camPlaceholder = document.getElementById('camPlaceholder');
-    const camError       = document.getElementById('camError');
-    let stream = null;
+    loadVideoMeta();
+    drawScoreGauge(0);
 
     camBtn.addEventListener('click', () => stream ? stopCamera() : startCamera());
 
@@ -144,6 +953,7 @@
         camBtn.textContent = 'Stop Camera';
         camBtn.className = 'cam-btn stop';
         refVideo.play().catch(() => {});
+        startWebSocketStream();
       } catch {
         camError.classList.add('visible');
       }
@@ -158,6 +968,7 @@
       camBtn.textContent = 'Start Camera';
       camBtn.className = 'cam-btn start';
       refVideo.pause();
+      stopMatchingLoop();
     }
 
     window.addEventListener('beforeunload', stopCamera);

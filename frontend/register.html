@@ -4,19 +4,76 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Register — Pose Matcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
   <style>
-    body { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
-    .logo { font-size:1.3rem; font-weight:800; background:linear-gradient(135deg,#6ee7f7,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; text-align:center; margin-bottom:24px; }
-    .card { width:100%; max-width:380px; }
-    .card h2 { font-size:1.4rem; font-weight:700; margin-bottom:4px; }
-    .card .sub { color:#64748b; font-size:0.88rem; margin-bottom:28px; }
-    .pw-wrap { position:relative; }
-    .pw-wrap input { padding-right:44px; }
-    .pw-toggle { position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:#475569; cursor:pointer; font-size:1rem; padding:4px; }
-    .footer-link { text-align:center; margin-top:20px; font-size:0.85rem; color:#475569; }
-    .footer-link a { color:#6ee7f7; text-decoration:none; }
-    .strength { height:4px; border-radius:99px; margin-top:6px; transition:width 0.3s, background 0.3s; width:0%; }
+    body { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center; 
+      padding: 24px;
+      min-height: 100vh;
+      background: #0a0a0a;
+    }
+    .logo { 
+      font-size: 1.4rem; 
+      font-weight: 800; 
+      color: #c9f31d;
+      text-align: center; 
+      margin-bottom: 32px;
+      letter-spacing: -0.02em;
+    }
+    .card { width: 100%; max-width: 400px; }
+    .card h2 { 
+      font-size: 1.5rem; 
+      font-weight: 700; 
+      margin-bottom: 6px;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+    .card .sub { color: #737373; font-size: 0.9rem; margin-bottom: 32px; }
+    .pw-wrap { position: relative; }
+    .pw-wrap input { padding-right: 48px; }
+    .pw-toggle { 
+      position: absolute; 
+      right: 14px; 
+      top: 50%; 
+      transform: translateY(-50%); 
+      background: none; 
+      border: none; 
+      color: #525252; 
+      cursor: pointer; 
+      font-size: 0.85rem; 
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s;
+    }
+    .pw-toggle:hover { color: #a3a3a3; }
+    .footer-link { 
+      text-align: center; 
+      margin-top: 24px; 
+      font-size: 0.88rem; 
+      color: #525252; 
+    }
+    .footer-link a { 
+      color: #c9f31d; 
+      text-decoration: none; 
+      font-weight: 500;
+    }
+    .footer-link a:hover { text-decoration: underline; }
+    .strength { 
+      height: 4px; 
+      border-radius: 99px; 
+      margin-top: 8px; 
+      transition: width 0.3s, background 0.3s; 
+      width: 0%; 
+      background: #333;
+    }
   </style>
 </head>
 <body>
@@ -26,7 +83,7 @@
     <h2>Create account</h2>
     <p class="sub">Join to start tracking your form</p>
 
-    <div class="alert alert-error"   id="errMsg"></div>
+    <div class="alert alert-error" id="errMsg"></div>
     <div class="alert alert-success" id="okMsg"></div>
 
     <div class="field">
@@ -43,7 +100,16 @@
       <label for="password">Password</label>
       <div class="pw-wrap">
         <input type="password" id="password" placeholder="min 6 characters" autocomplete="new-password" />
-        <button class="pw-toggle" id="pwToggle" type="button">👁</button>
+        <button class="pw-toggle" id="pwToggle" type="button">
+          <svg id="eyeOpen" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 9s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/>
+            <circle cx="9" cy="9" r="3"/>
+          </svg>
+          <svg id="eyeClosed" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+            <path d="M14.12 14.12A8.94 8.94 0 019 16c-5 0-8-6-8-6a16.07 16.07 0 013.88-4.88M6.12 6.12A3 3 0 0112 9a2.98 2.98 0 01-.88 2.12"/>
+            <line x1="1" y1="1" x2="17" y2="17"/>
+          </svg>
+        </button>
       </div>
       <div class="strength" id="strength"></div>
     </div>
@@ -59,19 +125,22 @@
     if (Auth.isLoggedIn()) window.location.replace('/');
 
     const pwToggle = document.getElementById('pwToggle');
-    const pwInput  = document.getElementById('password');
+    const pwInput = document.getElementById('password');
     const strength = document.getElementById('strength');
+    const eyeOpen = document.getElementById('eyeOpen');
+    const eyeClosed = document.getElementById('eyeClosed');
 
     pwToggle.addEventListener('click', () => {
       const show = pwInput.type === 'password';
       pwInput.type = show ? 'text' : 'password';
-      pwToggle.textContent = show ? '🙈' : '👁';
+      eyeOpen.style.display = show ? 'none' : 'block';
+      eyeClosed.style.display = show ? 'block' : 'none';
     });
 
     pwInput.addEventListener('input', () => {
       const len = pwInput.value.length;
       const pct = Math.min(len / 12 * 100, 100);
-      const color = len < 6 ? '#ef4444' : len < 10 ? '#fbbf24' : '#4ade80';
+      const color = len < 6 ? '#ef4444' : len < 10 ? '#fbbf24' : '#c9f31d';
       strength.style.width = pct + '%';
       strength.style.background = color;
     });
@@ -80,11 +149,11 @@
     document.getElementById('regBtn').addEventListener('click', doRegister);
 
     async function doRegister() {
-      const btn      = document.getElementById('regBtn');
-      const errMsg   = document.getElementById('errMsg');
-      const okMsg    = document.getElementById('okMsg');
+      const btn = document.getElementById('regBtn');
+      const errMsg = document.getElementById('errMsg');
+      const okMsg = document.getElementById('okMsg');
       const username = document.getElementById('username').value.trim();
-      const email    = document.getElementById('email').value.trim();
+      const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
 
       errMsg.classList.remove('visible');
@@ -97,10 +166,10 @@
       }
 
       btn.disabled = true;
-      btn.textContent = 'Creating…';
+      btn.textContent = 'Creating...';
 
       try {
-        const res  = await fetch('/api/auth/register', {
+        const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, email, password }),

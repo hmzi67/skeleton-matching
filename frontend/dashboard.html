@@ -4,36 +4,48 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My Uploads — Pose Matcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .upload-list { display:flex; flex-direction:column; gap:12px; }
+    .upload-list { display: flex; flex-direction: column; gap: 14px; }
 
     .upload-item {
-      background:#1e2130;
-      border:1px solid #2d3148;
-      border-radius:12px;
-      padding:16px 20px;
-      display:flex;
-      align-items:center;
-      gap:16px;
-      flex-wrap:wrap;
+      background: linear-gradient(145deg, #141414 0%, #0f0f0f 100%);
+      border: 1px solid #262626;
+      border-radius: 14px;
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      transition: border-color 0.2s;
     }
+    .upload-item:hover { border-color: #333; }
 
     .upload-item video {
-      width:96px;
-      height:64px;
-      object-fit:cover;
-      border-radius:8px;
-      background:#000;
-      flex-shrink:0;
+      width: 100px;
+      height: 68px;
+      object-fit: cover;
+      border-radius: 10px;
+      background: #0a0a0a;
+      flex-shrink: 0;
     }
 
-    .upload-info { flex:1; min-width:160px; }
-    .upload-name { font-weight:700; font-size:0.95rem; text-transform:capitalize; }
-    .upload-meta { font-size:0.78rem; color:#64748b; margin-top:4px; line-height:1.6; }
-    .upload-note { font-size:0.78rem; color:#94a3b8; font-style:italic; margin-top:4px; }
+    .upload-info { flex: 1; min-width: 160px; }
+    .upload-name { font-weight: 700; font-size: 0.98rem; text-transform: capitalize; color: #fff; }
+    .upload-meta { font-size: 0.78rem; color: #737373; margin-top: 5px; line-height: 1.7; }
+    .upload-note { font-size: 0.78rem; color: #a3a3a3; font-style: italic; margin-top: 6px; }
 
-    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+    .header-row { 
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between; 
+      margin-bottom: 28px; 
+      flex-wrap: wrap; 
+      gap: 14px; 
+    }
   </style>
 </head>
 <body>
@@ -49,7 +61,15 @@
     </div>
 
     <div class="upload-list" id="uploadList">
-      <div class="empty"><div class="icon">⏳</div><p>Loading…</p></div>
+      <div class="empty">
+        <div class="icon">
+          <svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="14" cy="14" r="10"/>
+            <polyline points="14 8 14 14 18 16"/>
+          </svg>
+        </div>
+        <p>Loading...</p>
+      </div>
     </div>
   </div>
 
@@ -64,19 +84,24 @@
       <div class="nav-links">
         <a href="/">Exercises</a>
         <a href="/upload">Upload Video</a>
-        <span class="nav-user">👤 ${user.username}</span>
+        <span class="nav-user">${user.username}</span>
         <button class="nav-logout" onclick="Auth.logout()">Logout</button>
       </div>`;
 
     async function load() {
       const list = document.getElementById('uploadList');
       try {
-        const res    = await Auth.apiFetch('/api/my-uploads');
+        const res = await Auth.apiFetch('/api/my-uploads');
         const videos = await res.json();
 
         if (videos.length === 0) {
           list.innerHTML = `<div class="empty">
-            <div class="icon">📭</div>
+            <div class="icon">
+              <svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="22" height="16" rx="2" ry="2"/>
+                <polygon points="10 9 16 12 10 15 10 9"/>
+              </svg>
+            </div>
             <p>No uploads yet.<br><a href="/upload">Upload your first reference video</a></p>
           </div>`;
           return;
@@ -98,7 +123,16 @@
           </div>
         `).join('');
       } catch {
-        list.innerHTML = `<div class="empty"><div class="icon">⚠️</div><p>Could not load uploads.</p></div>`;
+        list.innerHTML = `<div class="empty">
+          <div class="icon">
+            <svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2">
+              <circle cx="14" cy="14" r="10"/>
+              <line x1="14" y1="10" x2="14" y2="14"/>
+              <line x1="14" y1="18" x2="14.01" y2="18"/>
+            </svg>
+          </div>
+          <p>Could not load uploads.</p>
+        </div>`;
       }
     }
 
