@@ -149,6 +149,15 @@ nav {
   background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
   box-shadow: 0 6px 28px rgba(45, 212, 191, 0.4);
 }
+.btn-secondary {
+  background: #2a2a2a;
+  color: #e5e5e5;
+  border: 1px solid #3a3a3a;
+}
+.btn-secondary:hover {
+  background: #3a3a3a;
+  border-color: #4a4a4a;
+}
 .btn-success  { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: #fff; }
 .btn-success:hover { background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); }
 .btn-danger   { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; }

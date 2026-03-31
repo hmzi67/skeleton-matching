@@ -58,6 +58,7 @@ PENDING_DIR.mkdir(parents=True, exist_ok=True)
 APPROVED_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB limit
 SKELETON_CACHE_DIR = Path("data/cache/reference_skeletons")
 SKELETON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1019,6 +1020,17 @@ def upload_video():
         return jsonify({"error": "Empty filename"}), 400
     if not _allowed(file.filename):
         return jsonify({"error": "File type not allowed"}), 400
+    
+    # Check file size
+    file.seek(0, 2)  # Seek to end
+    file_size = file.tell()
+    file.seek(0)  # Reset position
+    
+    if file_size > MAX_FILE_SIZE:
+        return jsonify({"error": f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)} MB"}), 400
+    
+    if file_size == 0:
+        return jsonify({"error": "File is empty"}), 400
 
     video_id  = str(uuid.uuid4())
     ext       = file.filename.rsplit(".", 1)[1].lower()

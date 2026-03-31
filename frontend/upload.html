@@ -9,6 +9,190 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
   <style>
+    /* Mode Tabs */
+    .mode-tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #252525;
+      padding-bottom: 16px;
+      position: relative;
+      z-index: 10;
+    }
+    .mode-tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: none;
+      border: none;
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 0.94rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .mode-tab:hover {
+      color: #e5e7eb;
+    }
+    .mode-tab.active {
+      color: #2dd4bf;
+    }
+    .mode-tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -16px;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: #2dd4bf;
+    }
+
+    /* Mode Containers */
+    .mode-container {
+      display: none;
+      pointer-events: none;
+    }
+    .mode-container.active {
+      display: block;
+      pointer-events: auto;
+    }
+
+    /* Webcam Section */
+    .webcam-section {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #0f0f0f;
+      border: 1px solid #252525;
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    #webcamVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #0f0f0f;
+    }
+    .camera-status {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #e5e7eb;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      display: none;
+    }
+    .camera-status.visible {
+      display: block;
+    }
+
+    /* Recording Controls */
+    .recording-controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+    .timer-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .timer-display {
+      font-size: 3.5rem;
+      font-weight: 800;
+      color: #2dd4bf;
+      font-family: 'Courier New', monospace;
+      line-height: 1;
+      min-width: 180px;
+      text-align: center;
+    }
+    .timer-display.warning {
+      color: #f59e0b;
+    }
+    .timer-display.critical {
+      color: #ef4444;
+      animation: pulse 0.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .timer-label {
+      font-size: 0.9rem;
+      color: #6b7280;
+      font-weight: 500;
+    }
+    .recording-controls button {
+      min-width: 200px;
+    }
+
+    /* Preview Section */
+    .preview-section {
+      margin-bottom: 24px;
+    }
+    #recordedVideoPreview {
+      width: 100%;
+      height: auto;
+      max-height: 400px;
+      background: #0f0f0f;
+      border: 1px solid #252525;
+      border-radius: 14px;
+      margin-bottom: 12px;
+    }
+    .preview-info {
+      padding: 12px 16px;
+      background: #1a1a1a;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      color: #9ca3af;
+    }
+    .preview-info p {
+      margin: 0;
+    }
+
+    /* Preview Actions */
+    .preview-actions {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .preview-actions button {
+      flex: 1;
+    }
+
+    /* Record Progress */
+    .record-progress-wrap {
+      display: none;
+      margin-top: 18px;
+    }
+    .record-progress-wrap.visible {
+      display: block;
+    }
+    .progress-bg { 
+      background: #1a1a1a; 
+      border-radius: 99px; 
+      height: 8px; 
+      overflow: hidden; 
+    }
+    .progress-fill { 
+      height: 100%; 
+      background: linear-gradient(90deg, #2dd4bf, #14b8a6); 
+      border-radius: 99px; 
+      width: 0%; 
+      transition: width 0.3s; 
+    }
+    .progress-lbl { font-size: 0.8rem; color: #6b7280; margin-top: 8px; text-align: right; }
+
+    /* Original Drop Zone & Preview Styles */
     .drop-zone {
       border: 2px dashed #2a2a2a;
       border-radius: 16px;
@@ -115,21 +299,42 @@
       <div class="alert alert-error" id="errMsg"></div>
       <div class="alert alert-success" id="okMsg"></div>
 
-      <div class="field">
-        <label for="exercise">Exercise Type</label>
-        <select id="exercise">
-          <option value="squat">Squat</option>
-          <option value="pushup">Push-up</option>
-          <option value="deadlift">Deadlift</option>
-          <option value="lunge">Lunge</option>
-          <option value="shoulder_press">Shoulder Press</option>
-          <option value="default">Other</option>
-        </select>
+      <!-- Mode Toggle Tabs -->
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="upload" onclick="switchMode('upload')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Upload from Storage
+        </button>
+        <button class="mode-tab" data-mode="record" onclick="switchMode('record')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="1" fill="currentColor"/>
+            <path d="M12 1v6m4.22-4.22l-4.24 4.24m0 0l-4.24-4.24M7.78 7.78l-4.24-4.24"/>
+          </svg>
+          Record Video
+        </button>
       </div>
 
-      <div class="field">
-        <label>Video File</label>
-        <div class="drop-zone" id="dropZone">
+      <!-- Upload Mode -->
+      <div id="upload-mode" class="mode-container active">
+        <div class="field">
+          <label for="exercise">Exercise Type</label>
+          <select id="exercise">
+            <option value="squat">Squat</option>
+            <option value="pushup">Push-up</option>
+            <option value="deadlift">Deadlift</option>
+            <option value="lunge">Lunge</option>
+            <option value="shoulder_press">Shoulder Press</option>
+            <option value="default">Other</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Video File</label>
+          <div class="drop-zone" id="dropZone">
           <input type="file" id="fileInput" accept="video/*" />
           <div class="dz-icon">
             <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -140,6 +345,7 @@
           </div>
           <p><span>Click to browse</span> or drag & drop</p>
           <p style="margin-top:6px;font-size:0.8rem;color:#525252">MP4, MOV, AVI, MKV, WEBM</p>
+        </div>
         </div>
 
         <div class="preview-row" id="previewRow">
@@ -155,14 +361,78 @@
             </svg>
           </button>
         </div>
+
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-bg"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-lbl" id="progressLbl">0%</div>
+        </div>
+
+        <button class="btn btn-primary btn-full" id="uploadBtn" disabled>Submit for Review</button>
       </div>
 
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-bg"><div class="progress-fill" id="progressFill"></div></div>
-        <div class="progress-lbl" id="progressLbl">0%</div>
-      </div>
+      <!-- Recording Mode Inside Card -->
+      <div id="record-mode" class="mode-container">
+        <div class="alert alert-error" id="recErrMsg"></div>
+        <div class="alert alert-success" id="recOkMsg"></div>
+        <div class="field">
+          <label for="recordExercise">Exercise Type</label>
+          <select id="recordExercise">
+            <option value="squat">Squat</option>
+            <option value="pushup">Push-up</option>
+            <option value="deadlift">Deadlift</option>
+            <option value="lunge">Lunge</option>
+            <option value="shoulder_press">Shoulder Press</option>
+            <option value="default">Other</option>
+          </select>
+        </div>
 
-      <button class="btn btn-primary btn-full" id="uploadBtn" disabled>Submit for Review</button>
+        <!-- Recording Interface (hidden when recording ends) -->
+        <div id="recording-interface">
+          <div class="webcam-section">
+            <video id="webcamVideo" autoplay playsinline muted></video>
+            <div id="cameraStatus" class="camera-status"></div>
+          </div>
+
+          <div class="recording-controls">
+            <div class="timer-section">
+              <div class="timer-display" id="timerDisplay">20</div>
+              <div class="timer-label">seconds</div>
+            </div>
+            <button class="btn btn-primary" id="startRecordBtn" onclick="startRecording()">
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <circle cx="8" cy="8" r="7"/>
+              </svg>
+              Start Recording
+            </button>
+            <button class="btn btn-secondary" id="stopRecordBtn" onclick="stopRecording()" style="display:none">
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <rect x="4" y="4" width="8" height="8"/>
+              </svg>
+              Stop Recording
+            </button>
+          </div>
+        </div>
+
+        <!-- Preview Interface (shown after recording) -->
+        <div id="preview-interface" style="display:none">
+          <div class="preview-section">
+            <video id="recordedVideoPreview" controls></video>
+            <div class="preview-info">
+              <p id="recordDuration">Duration: 0s</p>
+            </div>
+          </div>
+
+          <div class="preview-actions">
+            <button class="btn btn-secondary" onclick="reRecord()">Re-record</button>
+            <button class="btn btn-primary" id="uploadRecordedBtn" onclick="uploadRecordedVideo()">Upload Video</button>
+          </div>
+
+          <div class="record-progress-wrap" id="recordProgressWrap" style="display:none">
+            <div class="progress-bg"><div class="progress-fill" id="recordProgressFill"></div></div>
+            <div class="progress-lbl" id="recordProgressLbl">0%</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -267,6 +537,272 @@
       });
 
       xhr.send(formData);
+    });
+
+    // ===== RECORDING MODE LOGIC =====
+    let mediaStream = null;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let recordingStartTime = 0;
+    let recordingTimeoutId = null;
+    const MAX_RECORDING_TIME = 20; // seconds
+
+    function switchMode(mode) {
+      console.log('Switching to mode:', mode);
+      
+      // Update tab active state
+      document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.mode === mode);
+      });
+
+      // Update container visibility
+      const uploadMode = document.getElementById('upload-mode');
+      const recordMode = document.getElementById('record-mode');
+      
+      if (mode === 'upload') {
+        uploadMode.classList.add('active');
+        recordMode.classList.remove('active');
+      } else {
+        uploadMode.classList.remove('active');
+        recordMode.classList.add('active');
+      }
+
+      if (mode === 'record') {
+        // Initialize camera when switching to record mode
+        console.log('Initializing camera...');
+        initializeCamera();
+      } else {
+        // Stop any active recording when switching away
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+        stopMediaStream();
+      }
+    }
+
+    async function initializeCamera() {
+      const cameraStatus = document.getElementById('cameraStatus');
+      const startBtn = document.getElementById('startRecordBtn');
+      const webcamVid = document.getElementById('webcamVideo');
+
+      try {
+        if (mediaStream) return; // Already initialized
+
+        cameraStatus.textContent = 'Requesting camera access...';
+        cameraStatus.classList.add('visible');
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true
+        });
+
+        webcamVid.srcObject = mediaStream;
+        cameraStatus.style.display = 'none';
+        startBtn.disabled = false;
+      } catch (err) {
+        cameraStatus.textContent = '❌ Camera access denied. Please check permissions in browser settings.';
+        cameraStatus.classList.add('visible');
+        cameraStatus.style.color = '#ef4444';
+        startBtn.disabled = true;
+        console.error('Camera error:', err);
+      }
+    }
+
+    function stopMediaStream() {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+    }
+
+    async function startRecording() {
+      if (!mediaStream) {
+        alert('Camera not initialized');
+        return;
+      }
+
+      try {
+        recordedChunks = [];
+        const options = { mimeType: 'video/mp4;codecs=avc1,mp4a.40.2' };
+
+        // Fallback options if MP4 not supported
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+          console.log('MP4 not supported, trying WebM...');
+          const webmMimeType = 'video/webm;codecs=vp8,opus';
+          if (MediaRecorder.isTypeSupported(webmMimeType)) {
+            options.mimeType = webmMimeType;
+          }
+        }
+
+        mediaRecorder = new MediaRecorder(mediaStream, options);
+        mediaRecorder.ondataavailable = e => {
+          if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+        mediaRecorder.onstop = handleRecordingStop;
+
+        mediaRecorder.start();
+        recordingStartTime = Date.now();
+
+        // Update UI
+        document.getElementById('startRecordBtn').style.display = 'none';
+        document.getElementById('stopRecordBtn').style.display = 'flex';
+        document.getElementById('recording-interface').style.opacity = '0.8';
+
+        // Start timer countdown
+        updateTimer();
+        recordingTimeoutId = setInterval(updateTimer, 100);
+
+        // Auto-stop after MAX_RECORDING_TIME seconds
+        setTimeout(() => {
+          if (mediaRecorder && mediaRecorder.state === 'recording') {
+            stopRecording();
+          }
+        }, MAX_RECORDING_TIME * 1000);
+      } catch (err) {
+        console.error('Recording error:', err);
+        alert('Failed to start recording');
+      }
+    }
+
+    function stopRecording() {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+      mediaRecorder.stop();
+      clearInterval(recordingTimeoutId);
+
+      // Restore UI
+      document.getElementById('startRecordBtn').style.display = 'flex';
+      document.getElementById('stopRecordBtn').style.display = 'none';
+      document.getElementById('recording-interface').style.opacity = '1';
+      document.getElementById('timerDisplay').textContent = '20';
+      document.getElementById('timerDisplay').classList.remove('warning', 'critical');
+    }
+
+    function updateTimer() {
+      const elapsed = (Date.now() - recordingStartTime) / 1000;
+      const remaining = Math.max(0, MAX_RECORDING_TIME - elapsed);
+      const display = remaining.toFixed(1);
+
+      const timerEl = document.getElementById('timerDisplay');
+      timerEl.textContent = display;
+
+      if (remaining <= 5 && remaining > 2) {
+        timerEl.classList.remove('critical');
+        timerEl.classList.add('warning');
+      } else if (remaining <= 2) {
+        timerEl.classList.add('critical');
+      } else {
+        timerEl.classList.remove('warning', 'critical');
+      }
+    }
+
+    function handleRecordingStop() {
+      // Create video blob
+      const mimeType = mediaRecorder.mimeType;
+      const videoBlob = new Blob(recordedChunks, { type: mimeType });
+
+      // Create preview
+      const videoUrl = URL.createObjectURL(videoBlob);
+      const previewVid = document.getElementById('recordedVideoPreview');
+      previewVid.src = videoUrl;
+
+      // Calculate duration
+      const duration = (Date.now() - recordingStartTime) / 1000;
+      document.getElementById('recordDuration').textContent = `Duration: ${duration.toFixed(1)}s`;
+
+      // Store blob for upload
+      window.recordedVideoBlob = videoBlob;
+
+      // Show preview interface
+      document.getElementById('recording-interface').style.display = 'none';
+      document.getElementById('preview-interface').style.display = 'block';
+    }
+
+    function reRecord() {
+      window.recordedVideoBlob = null;
+      document.getElementById('recordedVideoPreview').src = '';
+
+      // Show recording interface
+      document.getElementById('recording-interface').style.display = 'block';
+      document.getElementById('preview-interface').style.display = 'none';
+      document.getElementById('timerDisplay').textContent = '20';
+
+      // Reset button state
+      document.getElementById('startRecordBtn').style.display = 'flex';
+      document.getElementById('stopRecordBtn').style.display = 'none';
+    }
+
+    async function uploadRecordedVideo() {
+      if (!window.recordedVideoBlob) {
+        alert('No recorded video');
+        return;
+      }
+
+      const exercise = document.getElementById('recordExercise').value;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const videoFile = new File([window.recordedVideoBlob], `recorded_exercise_${timestamp}.mp4`, { type: 'video/mp4' });
+
+      const recErrMsg = document.getElementById('recErrMsg');
+      const recOkMsg = document.getElementById('recOkMsg');
+      recErrMsg.classList.remove('visible');
+      recOkMsg.classList.remove('visible');
+
+      const formData = new FormData();
+      formData.append('video', videoFile);
+      formData.append('exercise', exercise);
+
+      const uploadBtn = document.getElementById('uploadRecordedBtn');
+      uploadBtn.disabled = true;
+      document.getElementById('recordProgressWrap').classList.add('visible');
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      xhr.setRequestHeader('Authorization', `Bearer ${Auth.getToken()}`);
+
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          document.getElementById('recordProgressFill').style.width = pct + '%';
+          document.getElementById('recordProgressLbl').textContent = pct + '%';
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        document.getElementById('recordProgressWrap').classList.remove('visible');
+        document.getElementById('recordProgressFill').style.width = '0%';
+        uploadBtn.disabled = false;
+
+        if (xhr.status === 201) {
+          recOkMsg.textContent = 'Video uploaded! Waiting for admin approval.';
+          recOkMsg.classList.add('visible');
+          reRecord();
+          setTimeout(() => {
+            switchMode('upload');
+            document.getElementById('recOkMsg').innerText = '';
+          }, 2000);
+        } else {
+          const err = JSON.parse(xhr.responseText);
+          recErrMsg.textContent = err.error || 'Upload failed.';
+          recErrMsg.classList.add('visible');
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        document.getElementById('recordProgressWrap').classList.remove('visible');
+        uploadBtn.disabled = false;
+        recErrMsg.textContent = 'Network error.';
+        recErrMsg.classList.add('visible');
+      });
+
+      xhr.send(formData);
+    }
+
+    // Stop recording and clean up when page is closed
+    window.addEventListener('beforeunload', () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
+      stopMediaStream();
     });
   </script>
 </body>
