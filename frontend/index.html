@@ -14,22 +14,18 @@
 
     .section-label { text-align:center; font-size:0.75rem; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#525252; margin-bottom:28px; }
 
-    .exercise-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:20px; }
+    .exercise-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:24px; }
 
     .ex-card { 
       background:linear-gradient(145deg, #181818 0%, #121212 100%); 
       border:1px solid #252525; 
       border-radius:20px; 
-      padding:32px 20px 26px; 
-      text-align:center; 
       cursor:pointer; 
       transition:all 0.25s ease; 
       text-decoration:none; 
       color:inherit; 
       display:flex; 
       flex-direction:column; 
-      align-items:center; 
-      gap:12px;
       position:relative;
       overflow:hidden;
     }
@@ -42,7 +38,8 @@
       height:3px; 
       background:linear-gradient(90deg, #2dd4bf, #14b8a6); 
       opacity:0; 
-      transition:opacity 0.25s; 
+      transition:opacity 0.25s;
+      z-index:2;
     }
     .ex-card:hover { 
       border-color:#2dd4bf; 
@@ -50,24 +47,58 @@
       box-shadow:0 12px 40px rgba(45,212,191,0.12); 
     }
     .ex-card:hover::before { opacity:1; }
+
+    .ex-card .ex-thumbnail {
+      width:100%;
+      height:160px;
+      object-fit:cover;
+      background:#0a0a0a;
+      display:block;
+    }
+    .ex-card .ex-thumbnail-placeholder {
+      width:100%;
+      height:160px;
+      background:linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#2dd4bf;
+    }
+
+    .ex-card .ex-body {
+      padding:20px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .ex-card .ex-header {
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
     .ex-card .ex-icon { 
-      width:56px; 
-      height:56px; 
+      width:44px; 
+      height:44px; 
       display:flex; 
       align-items:center; 
       justify-content:center; 
       background:linear-gradient(135deg, rgba(45,212,191,0.1) 0%, rgba(45,212,191,0.05) 100%); 
       border:1px solid rgba(45,212,191,0.2); 
-      border-radius:14px; 
+      border-radius:12px; 
       color:#2dd4bf;
+      flex-shrink:0;
     }
-    .ex-card .ex-name { font-weight:700; font-size:1rem; text-transform:capitalize; color:#fff; }
-    .ex-card .ex-sub { font-size:0.78rem; color:#6b7280; }
-    .ex-card .ex-uploader { font-size:0.72rem; color:#525252; margin-top:4px; }
+    .ex-card .ex-info { flex:1; }
+    .ex-card .ex-name { font-weight:700; font-size:1.1rem; text-transform:capitalize; color:#fff; }
+    .ex-card .ex-sub { font-size:0.8rem; color:#6b7280; margin-top:2px; }
+    .ex-card .ex-uploader { font-size:0.75rem; color:#525252; margin-top:8px; display:flex; align-items:center; gap:6px; }
+    .ex-card .ex-uploader svg { width:14px; height:14px; }
 
     .ex-card.ghost { pointer-events:none; animation:pulse 1.5s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
-    .ex-card.ghost .ex-icon,.ex-card.ghost .ex-name,.ex-card.ghost .ex-sub { background:#252525; border-radius:8px; color:transparent; }
+    .ex-card.ghost .ex-thumbnail-placeholder,.ex-card.ghost .ex-icon,.ex-card.ghost .ex-name,.ex-card.ghost .ex-sub { background:#252525; border-radius:8px; color:transparent; }
 
     /* guest CTA banner */
     .cta-banner { 
@@ -113,9 +144,9 @@
     <div id="ctaBanner"></div>
     <div class="section-label">Choose an exercise</div>
     <div class="exercise-grid" id="exerciseGrid">
-      <div class="ex-card ghost"><div class="ex-icon"></div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
-      <div class="ex-card ghost"><div class="ex-icon"></div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
-      <div class="ex-card ghost"><div class="ex-icon"></div><div class="ex-name">Loading</div><div class="ex-sub">...</div></div>
+      <div class="ex-card ghost"><div class="ex-thumbnail-placeholder"></div><div class="ex-body"><div class="ex-header"><div class="ex-icon"></div><div class="ex-info"><div class="ex-name">Loading</div><div class="ex-sub">...</div></div></div></div></div>
+      <div class="ex-card ghost"><div class="ex-thumbnail-placeholder"></div><div class="ex-body"><div class="ex-header"><div class="ex-icon"></div><div class="ex-info"><div class="ex-name">Loading</div><div class="ex-sub">...</div></div></div></div></div>
+      <div class="ex-card ghost"><div class="ex-thumbnail-placeholder"></div><div class="ex-body"><div class="ex-header"><div class="ex-icon"></div><div class="ex-info"><div class="ex-name">Loading</div><div class="ex-sub">...</div></div></div></div></div>
     </div>
   </div>
 
@@ -123,12 +154,12 @@
   <script src="/auth.js"></script>
   <script>
     const ICONS = {
-      squat: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><path d="M12 8v4M8 20l4-8 4 8M6 16h12"/></svg>`,
-      pushup: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="3"/><path d="M8 12h13M15 8l4 4-4 4"/></svg>`,
-      deadlift: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="4" rx="1"/><path d="M6 10V6M18 10V6M6 14v4M18 14v4"/></svg>`,
-      lunge: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2"/><path d="M7 21l5-9 5 9M12 12v-4M8 16h8"/></svg>`,
-      shoulder_press: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M6 9l6-3 6 3M6 21v-8M18 21v-8"/></svg>`,
-      default: `<svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><path d="M12 8v8M7 12l5-2 5 2M7 20l5-4 5 4"/></svg>`
+      squat: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="4" r="2.5"/><path d="M10 6.5v3M6.5 16l3.5-6.5 3.5 6.5M5 13h10"/></svg>`,
+      pushup: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="10" r="2.5"/><path d="M6.5 10h11M13 6.5l3.5 3.5-3.5 3.5"/></svg>`,
+      deadlift: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="8" width="15" height="3.5" rx="1"/><path d="M5 8V5M15 8V5M5 11.5v3.5M15 11.5v3.5"/></svg>`,
+      lunge: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="3" r="2"/><path d="M6 17.5l4-7.5 4 7.5M10 10V7M7 13.5h6"/></svg>`,
+      shoulder_press: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="5" r="2.5"/><path d="M10 7.5v5M5 7.5l5-2.5 5 2.5M5 17.5v-6.5M15 17.5v-6.5"/></svg>`,
+      default: `<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="4" r="2.5"/><path d="M10 6.5v6.5M6 10l4-1.5 4 1.5M6 16.5l4-3 4 3"/></svg>`
     };
     const DESC = { squat:'Lower body strength', pushup:'Upper body & core', deadlift:'Full body power', lunge:'Balance & legs', shoulder_press:'Shoulder strength', default:'General exercise' };
 
@@ -141,9 +172,7 @@
       nav.innerHTML = `
         <a class="nav-logo" href="/">Pose Matcher</a>
         <div class="nav-links">
-          ${user.role === 'admin'
-            ? `<a href="/admin">Admin Panel</a>`
-            : `<a href="/upload">Upload Video</a><a href="/dashboard">My Uploads</a>`}
+          <a href="/dashboard">Dashboard</a>
           <span class="nav-user">${user.username}</span>
           <button class="nav-logout" onclick="Auth.logout()">Logout</button>
         </div>`;
@@ -192,13 +221,57 @@
             : `/login`;
           const uploaderName = e.uploader?.username || 'unknown';
           return `
-            <a class="ex-card" href="${href}">
-              <div class="ex-icon">${ICONS[e.exercise] || ICONS.default}</div>
-              <div class="ex-name">${name}</div>
-              <div class="ex-sub">${DESC[e.exercise] || 'Exercise'}</div>
-              <div class="ex-uploader">by ${uploaderName}</div>
+            <a class="ex-card" href="${href}" data-video-id="${e.video_id}">
+              <video class="ex-thumbnail" src="/api/video/${e.video_id}" preload="metadata" muted playsinline></video>
+              <div class="ex-body">
+                <div class="ex-header">
+                  <div class="ex-icon">${ICONS[e.exercise] || ICONS.default}</div>
+                  <div class="ex-info">
+                    <div class="ex-name">${name}</div>
+                    <div class="ex-sub">${DESC[e.exercise] || 'Exercise'}</div>
+                  </div>
+                </div>
+                <div class="ex-uploader">
+                  <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4"/><path d="M14 14c0-2.2-3.1-4-7-4s-7 1.8-7 4"/></svg>
+                  by ${uploaderName}
+                </div>
+              </div>
             </a>`;
         }).join('');
+
+        // Load video thumbnails with auth if logged in
+        document.querySelectorAll('.ex-card').forEach(card => {
+          const video = card.querySelector('.ex-thumbnail');
+          const videoId = card.dataset.videoId;
+          
+          if (loggedIn) {
+            // Load with auth token
+            Auth.apiFetch(`/api/video/${videoId}`)
+              .then(r => r.ok ? r.blob() : null)
+              .then(blob => {
+                if (blob) {
+                  video.src = URL.createObjectURL(blob);
+                  video.currentTime = 1; // Seek to 1 second for better thumbnail
+                }
+              })
+              .catch(() => {});
+          } else {
+            // For guests, just seek to get a frame
+            video.addEventListener('loadeddata', () => {
+              video.currentTime = 1;
+            });
+          }
+
+          // Play on hover
+          card.addEventListener('mouseenter', () => {
+            video.play().catch(() => {});
+          });
+          card.addEventListener('mouseleave', () => {
+            video.pause();
+            video.currentTime = 1;
+          });
+        });
+
       } catch {
         grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
           <div class="icon">

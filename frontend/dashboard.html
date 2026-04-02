@@ -38,6 +38,8 @@
     .upload-meta { font-size: 0.8rem; color: #6b7280; margin-top: 6px; line-height: 1.7; }
     .upload-note { font-size: 0.8rem; color: #9ca3af; font-style: italic; margin-top: 8px; padding: 8px 12px; background: rgba(45, 212, 191, 0.05); border-radius: 8px; border-left: 2px solid #2dd4bf; }
 
+    .upload-actions { display: flex; gap: 10px; align-items: center; }
+
     .header-row { 
       display: flex; 
       align-items: center; 
@@ -45,6 +47,25 @@
       margin-bottom: 32px; 
       flex-wrap: wrap; 
       gap: 16px; 
+    }
+
+    .btn-delete {
+      background: transparent;
+      border: 1px solid #ef4444;
+      color: #ef4444;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-delete:hover {
+      background: #ef4444;
+      color: #fff;
+    }
+    .btn-delete:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -84,9 +105,41 @@
       <div class="nav-links">
         <a href="/">Exercises</a>
         <a href="/upload">Upload Video</a>
+        <a href="/reports">My Reports</a>
+        <a href="/profile">Profile</a>
         <span class="nav-user">${user.username}</span>
         <button class="nav-logout" onclick="Auth.logout()">Logout</button>
       </div>`;
+
+    const toast = document.getElementById('toast');
+
+    function showToast(msg, type = 'success') {
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    async function deleteVideo(id) {
+      if (!confirm('Are you sure you want to delete this video? This cannot be undone.')) return;
+      
+      const btn = document.querySelector(`#video-${id} .btn-delete`);
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await Auth.apiFetch(`/api/videos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Video deleted', 'success');
+          load();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed to delete', 'error');
+          if (btn) btn.disabled = false;
+        }
+      } catch {
+        showToast('Network error', 'error');
+        if (btn) btn.disabled = false;
+      }
+    }
 
     async function load() {
       const list = document.getElementById('uploadList');
@@ -108,7 +161,7 @@
         }
 
         list.innerHTML = videos.slice().reverse().map(v => `
-          <div class="upload-item">
+          <div class="upload-item" id="video-${v.id}">
             <video src="/api/video/${v.id}" preload="metadata" controls></video>
             <div class="upload-info">
               <div class="upload-name">${v.exercise.replace(/_/g,' ')}</div>
@@ -119,7 +172,10 @@
               </div>
               ${v.admin_note ? `<div class="upload-note">Admin note: ${v.admin_note}</div>` : ''}
             </div>
-            <span class="badge badge-${v.status}">${v.status}</span>
+            <div class="upload-actions">
+              <span class="badge badge-${v.status}">${v.status}</span>
+              <button class="btn-delete" onclick="deleteVideo('${v.id}')">Delete</button>
+            </div>
           </div>
         `).join('');
       } catch {

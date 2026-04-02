@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Profile — Pose Matcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .profile-header {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 32px;
+      padding: 32px;
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 20px;
+    }
+    .avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: #0f0f0f;
+      flex-shrink: 0;
+    }
+    .profile-info h1 {
+      margin: 0 0 8px;
+      font-size: 1.75rem;
+    }
+    .profile-meta {
+      color: #6b7280;
+      font-size: 0.9rem;
+    }
+    .profile-meta span {
+      margin-right: 16px;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-card.highlight {
+      border-color: #2dd4bf;
+      background: linear-gradient(145deg, rgba(45, 212, 191, 0.1) 0%, #121212 100%);
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-label {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: #fff;
+    }
+
+    .progress-section {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 250px;
+      margin-bottom: 16px;
+    }
+    #dailyProgressChart {
+      width: 100%;
+      height: 100%;
+      background: #141414;
+      border-radius: 12px;
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .legend-dot.score { background: #2dd4bf; }
+    .legend-dot.sessions { background: #8b5cf6; }
+
+    .streak-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .streak-card {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+    }
+    .streak-value {
+      font-size: 3rem;
+      font-weight: 800;
+      color: #fff;
+    }
+    .streak-value.fire {
+      background: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .streak-label {
+      font-size: 0.85rem;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+    .streak-icon {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+
+    .calendar-section {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .calendar-nav {
+      display: flex;
+      gap: 8px;
+    }
+    .calendar-nav button {
+      background: #2a2a2a;
+      border: none;
+      color: #fff;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .calendar-nav button:hover {
+      background: #3a3a3a;
+    }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .calendar-day-header {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #6b7280;
+      padding: 8px 0;
+      text-transform: uppercase;
+    }
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #6b7280;
+      position: relative;
+    }
+    .calendar-day.current-month {
+      color: #fff;
+    }
+    .calendar-day.today {
+      border: 2px solid #2dd4bf;
+    }
+    .calendar-day.has-activity {
+      background: rgba(45, 212, 191, 0.2);
+      color: #2dd4bf;
+      font-weight: 600;
+    }
+    .calendar-day.has-activity.high {
+      background: rgba(45, 212, 191, 0.4);
+    }
+    .calendar-day.has-activity.excellent {
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
+    }
+    .activity-dot {
+      position: absolute;
+      bottom: 4px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #2dd4bf;
+    }
+
+    .exercise-breakdown {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .exercise-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .exercise-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: #141414;
+      border-radius: 12px;
+    }
+    .exercise-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+    }
+    .exercise-info {
+      flex: 1;
+    }
+    .exercise-name {
+      font-weight: 600;
+      color: #fff;
+      text-transform: capitalize;
+      margin-bottom: 4px;
+    }
+    .exercise-stats {
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+    .exercise-progress {
+      width: 100px;
+      text-align: right;
+    }
+    .exercise-avg {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #2dd4bf;
+    }
+    .exercise-sessions {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+    .recent-activity {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 20px;
+      padding: 24px;
+    }
+    .activity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .activity-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: #141414;
+      border-radius: 12px;
+    }
+    .activity-grade {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      font-weight: 800;
+    }
+    .activity-grade.grade-a { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: #fff; }
+    .activity-grade.grade-b { background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%); color: #0f0f0f; }
+    .activity-grade.grade-c { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #0f0f0f; }
+    .activity-grade.grade-d { background: linear-gradient(135deg, #fb923c 0%, #f97316 100%); color: #0f0f0f; }
+    .activity-grade.grade-f { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; }
+    .activity-info {
+      flex: 1;
+    }
+    .activity-exercise {
+      font-weight: 600;
+      color: #fff;
+      text-transform: capitalize;
+    }
+    .activity-meta {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+    .activity-score {
+      text-align: right;
+    }
+    .activity-score-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .activity-score-label {
+      font-size: 0.7rem;
+      color: #6b7280;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #6b7280;
+    }
+
+    @media (max-width: 768px) {
+      .profile-header {
+        flex-direction: column;
+        text-align: center;
+      }
+      .streak-section {
+        grid-template-columns: 1fr;
+      }
+      .stats-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar" id="navBar">
+    <a class="nav-logo" href="/">Pose Matcher</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/upload">Upload</a>
+      <a href="/dashboard">My Uploads</a>
+      <a href="/reports">My Reports</a>
+      <a href="/profile" class="active">Profile</a>
+      <span id="navUser"></span>
+      <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container" style="max-width: 1000px; margin-top: 100px;">
+    <!-- Profile Header -->
+    <div class="profile-header">
+      <div class="avatar" id="userAvatar">U</div>
+      <div class="profile-info">
+        <h1 id="userName">Username</h1>
+        <div class="profile-meta">
+          <span id="memberSince">Member since --</span>
+          <span id="totalWorkouts">-- workouts completed</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card highlight">
+        <div class="stat-value" id="statTotalSessions">0</div>
+        <div class="stat-label">Total Sessions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statAvgScore">--</div>
+        <div class="stat-label">Avg Score</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statTotalTime">0m</div>
+        <div class="stat-label">Total Time</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statTotalReps">0</div>
+        <div class="stat-label">Total Reps</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statBestGrade">--</div>
+        <div class="stat-label">Best Grade</div>
+      </div>
+    </div>
+
+    <!-- Streak Section -->
+    <div class="streak-section">
+      <div class="streak-card">
+        <div class="streak-icon">🔥</div>
+        <div class="streak-value fire" id="currentStreak">0</div>
+        <div class="streak-label">Day Streak</div>
+      </div>
+      <div class="streak-card">
+        <div class="streak-icon">🏆</div>
+        <div class="streak-value" id="longestStreak">0</div>
+        <div class="streak-label">Longest Streak</div>
+      </div>
+    </div>
+
+    <!-- Daily Progress Chart -->
+    <div class="progress-section">
+      <div class="section-title">Daily Progress (Last 30 Days)</div>
+      <div class="chart-container">
+        <canvas id="dailyProgressChart"></canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-dot score"></div>
+          <span>Avg Score</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot sessions"></div>
+          <span>Sessions</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Calendar -->
+    <div class="calendar-section">
+      <div class="calendar-header">
+        <div class="section-title" style="margin-bottom:0" id="calendarTitle">Activity Calendar</div>
+        <div class="calendar-nav">
+          <button onclick="prevMonth()">&lt;</button>
+          <button onclick="nextMonth()">&gt;</button>
+        </div>
+      </div>
+      <div class="calendar-grid" id="calendarGrid"></div>
+    </div>
+
+    <!-- Exercise Breakdown -->
+    <div class="exercise-breakdown">
+      <div class="section-title">Exercise Breakdown</div>
+      <div class="exercise-list" id="exerciseList">
+        <div class="empty-state">No exercise data yet</div>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="recent-activity">
+      <div class="section-title">Recent Activity</div>
+      <div class="activity-list" id="activityList">
+        <div class="empty-state">No recent activity</div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/auth.js"></script>
+  <script>
+    Auth.guard();
+    const user = Auth.getUser();
+    document.getElementById('navUser').textContent = user.username;
+    document.getElementById('userName').textContent = user.username;
+    document.getElementById('userAvatar').textContent = user.username.charAt(0).toUpperCase();
+
+    let reports = [];
+    let currentCalendarDate = new Date();
+
+    async function loadProfile() {
+      try {
+        // Load user info
+        const userRes = await Auth.apiFetch('/api/me');
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          const joinDate = new Date(userData.created_at);
+          document.getElementById('memberSince').textContent = `Member since ${joinDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+        }
+
+        // Load reports
+        const res = await Auth.apiFetch('/api/reports');
+        if (!res.ok) throw new Error();
+        reports = await res.json();
+        
+        renderStats();
+        renderStreaks();
+        renderDailyChart();
+        renderCalendar();
+        renderExerciseBreakdown();
+        renderRecentActivity();
+      } catch (err) {
+        console.error('Failed to load profile:', err);
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('totalWorkouts').textContent = `${reports.length} workouts completed`;
+      document.getElementById('statTotalSessions').textContent = reports.length;
+
+      if (reports.length === 0) return;
+
+      // Avg score
+      const avgScore = reports.reduce((sum, r) => sum + r.avg_score, 0) / reports.length;
+      document.getElementById('statAvgScore').textContent = Math.round(avgScore);
+
+      // Total time
+      const totalSeconds = reports.reduce((sum, r) => sum + r.duration_seconds, 0);
+      document.getElementById('statTotalTime').textContent = formatDuration(totalSeconds);
+
+      // Total reps
+      const totalReps = reports.reduce((sum, r) => sum + r.rep_count, 0);
+      document.getElementById('statTotalReps').textContent = totalReps;
+
+      // Best grade
+      const gradeOrder = ['A', 'B', 'C', 'D', 'F'];
+      const bestGrade = reports.reduce((best, r) => {
+        return gradeOrder.indexOf(r.overall_grade) < gradeOrder.indexOf(best) ? r.overall_grade : best;
+      }, 'F');
+      document.getElementById('statBestGrade').textContent = bestGrade;
+    }
+
+    function renderStreaks() {
+      if (reports.length === 0) return;
+
+      // Get unique dates with activity
+      const activityDates = new Set();
+      reports.forEach(r => {
+        const date = new Date(r.created_at).toDateString();
+        activityDates.add(date);
+      });
+
+      // Calculate current streak
+      let currentStreak = 0;
+      let checkDate = new Date();
+      checkDate.setHours(0, 0, 0, 0);
+
+      // Check if today has activity, if not start from yesterday
+      if (!activityDates.has(checkDate.toDateString())) {
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      while (activityDates.has(checkDate.toDateString())) {
+        currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      // Calculate longest streak
+      const sortedDates = Array.from(activityDates).map(d => new Date(d)).sort((a, b) => a - b);
+      let longestStreak = 0;
+      let tempStreak = 1;
+
+      for (let i = 1; i < sortedDates.length; i++) {
+        const diff = (sortedDates[i] - sortedDates[i-1]) / (1000 * 60 * 60 * 24);
+        if (diff === 1) {
+          tempStreak++;
+          longestStreak = Math.max(longestStreak, tempStreak);
+        } else {
+          tempStreak = 1;
+        }
+      }
+      longestStreak = Math.max(longestStreak, tempStreak, currentStreak);
+
+      document.getElementById('currentStreak').textContent = currentStreak;
+      document.getElementById('longestStreak').textContent = longestStreak;
+    }
+
+    function renderDailyChart() {
+      const canvas = document.getElementById('dailyProgressChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+
+      // Clear
+      ctx.fillStyle = '#141414';
+      ctx.fillRect(0, 0, width, height);
+
+      // Get last 30 days data
+      const days = 30;
+      const dailyData = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toDateString();
+        
+        const dayReports = reports.filter(r => new Date(r.created_at).toDateString() === dateStr);
+        const avgScore = dayReports.length > 0 
+          ? dayReports.reduce((sum, r) => sum + r.avg_score, 0) / dayReports.length 
+          : null;
+        
+        dailyData.push({
+          date,
+          sessions: dayReports.length,
+          avgScore
+        });
+      }
+
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+
+      // Draw grid
+      ctx.strokeStyle = '#2a2a2a';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (chartHeight * i / 4);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+
+        // Y-axis labels
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(Math.round(100 - (i * 25)), padding.left - 8, y + 4);
+      }
+
+      // X-axis labels (every 5 days)
+      ctx.textAlign = 'center';
+      for (let i = 0; i < days; i += 5) {
+        const x = padding.left + (i / (days - 1)) * chartWidth;
+        const date = dailyData[i].date;
+        ctx.fillText(`${date.getMonth() + 1}/${date.getDate()}`, x, height - padding.bottom + 20);
+      }
+
+      // Draw session bars
+      const barWidth = chartWidth / days * 0.6;
+      const maxSessions = Math.max(...dailyData.map(d => d.sessions), 1);
+
+      dailyData.forEach((day, i) => {
+        if (day.sessions === 0) return;
+        
+        const x = padding.left + (i / (days - 1)) * chartWidth - barWidth / 2;
+        const barHeight = (day.sessions / maxSessions) * chartHeight * 0.3;
+        const y = height - padding.bottom - barHeight;
+
+        ctx.fillStyle = 'rgba(139, 92, 246, 0.6)';
+        ctx.fillRect(x, y, barWidth, barHeight);
+      });
+
+      // Draw score line
+      ctx.beginPath();
+      ctx.strokeStyle = '#2dd4bf';
+      ctx.lineWidth = 2;
+      let started = false;
+
+      dailyData.forEach((day, i) => {
+        if (day.avgScore === null) return;
+        
+        const x = padding.left + (i / (days - 1)) * chartWidth;
+        const y = padding.top + chartHeight - (day.avgScore / 100) * chartHeight;
+
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+
+      // Draw score points
+      dailyData.forEach((day, i) => {
+        if (day.avgScore === null) return;
+        
+        const x = padding.left + (i / (days - 1)) * chartWidth;
+        const y = padding.top + chartHeight - (day.avgScore / 100) * chartHeight;
+
+        ctx.beginPath();
+        ctx.fillStyle = '#2dd4bf';
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = '#141414';
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function renderCalendar() {
+      const grid = document.getElementById('calendarGrid');
+      const year = currentCalendarDate.getFullYear();
+      const month = currentCalendarDate.getMonth();
+
+      document.getElementById('calendarTitle').textContent = 
+        `${currentCalendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+
+      // Get activity for this month
+      const monthActivity = {};
+      reports.forEach(r => {
+        const date = new Date(r.created_at);
+        if (date.getFullYear() === year && date.getMonth() === month) {
+          const day = date.getDate();
+          if (!monthActivity[day]) {
+            monthActivity[day] = { sessions: 0, totalScore: 0 };
+          }
+          monthActivity[day].sessions++;
+          monthActivity[day].totalScore += r.avg_score;
+        }
+      });
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const today = new Date();
+
+      let html = '';
+      
+      // Day headers
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      dayNames.forEach(day => {
+        html += `<div class="calendar-day-header">${day}</div>`;
+      });
+
+      // Empty cells before first day
+      for (let i = 0; i < firstDay; i++) {
+        html += `<div class="calendar-day"></div>`;
+      }
+
+      // Days of month
+      for (let day = 1; day <= daysInMonth; day++) {
+        const isToday = year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
+        const activity = monthActivity[day];
+        
+        let classes = 'calendar-day current-month';
+        if (isToday) classes += ' today';
+        
+        if (activity) {
+          const avgScore = activity.totalScore / activity.sessions;
+          if (avgScore >= 85) classes += ' has-activity excellent';
+          else if (avgScore >= 70) classes += ' has-activity high';
+          else classes += ' has-activity';
+        }
+
+        html += `<div class="${classes}">${day}</div>`;
+      }
+
+      grid.innerHTML = html;
+    }
+
+    function prevMonth() {
+      currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+      renderCalendar();
+    }
+
+    function nextMonth() {
+      currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+      renderCalendar();
+    }
+
+    function renderExerciseBreakdown() {
+      const list = document.getElementById('exerciseList');
+      
+      if (reports.length === 0) {
+        list.innerHTML = '<div class="empty-state">Complete some exercises to see your breakdown</div>';
+        return;
+      }
+
+      // Group by exercise
+      const exerciseStats = {};
+      reports.forEach(r => {
+        const ex = r.exercise;
+        if (!exerciseStats[ex]) {
+          exerciseStats[ex] = { sessions: 0, totalScore: 0, totalReps: 0, totalTime: 0 };
+        }
+        exerciseStats[ex].sessions++;
+        exerciseStats[ex].totalScore += r.avg_score;
+        exerciseStats[ex].totalReps += r.rep_count;
+        exerciseStats[ex].totalTime += r.duration_seconds;
+      });
+
+      // Sort by sessions
+      const sorted = Object.entries(exerciseStats).sort((a, b) => b[1].sessions - a[1].sessions);
+
+      const icons = ['🏋️', '💪', '🦵', '🤸', '🧘', '🏃'];
+      
+      list.innerHTML = sorted.map(([exercise, stats], i) => {
+        const avgScore = stats.totalScore / stats.sessions;
+        return `
+          <div class="exercise-item">
+            <div class="exercise-icon">${icons[i % icons.length]}</div>
+            <div class="exercise-info">
+              <div class="exercise-name">${exercise.replace(/_/g, ' ')}</div>
+              <div class="exercise-stats">${stats.totalReps} reps • ${formatDuration(stats.totalTime)}</div>
+            </div>
+            <div class="exercise-progress">
+              <div class="exercise-avg">${Math.round(avgScore)}</div>
+              <div class="exercise-sessions">${stats.sessions} sessions</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderRecentActivity() {
+      const list = document.getElementById('activityList');
+      
+      if (reports.length === 0) {
+        list.innerHTML = '<div class="empty-state">No recent activity</div>';
+        return;
+      }
+
+      // Get last 10 reports
+      const recent = reports.slice(0, 10);
+
+      list.innerHTML = recent.map(r => `
+        <div class="activity-item">
+          <div class="activity-grade grade-${r.overall_grade.toLowerCase()}">${r.overall_grade}</div>
+          <div class="activity-info">
+            <div class="activity-exercise">${r.exercise.replace(/_/g, ' ')}</div>
+            <div class="activity-meta">${formatRelativeTime(r.created_at)} • ${r.rep_count} reps • ${formatDuration(r.duration_seconds)}</div>
+          </div>
+          <div class="activity-score">
+            <div class="activity-score-value">${Math.round(r.avg_score)}</div>
+            <div class="activity-score-label">avg score</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function formatDuration(seconds) {
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      const remainMins = mins % 60;
+      return `${hours}h ${remainMins}m`;
+    }
+
+    function formatRelativeTime(dateStr) {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diff = now - date;
+      
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days = Math.floor(diff / 86400000);
+
+      if (minutes < 1) return 'Just now';
+      if (minutes < 60) return `${minutes}m ago`;
+      if (hours < 24) return `${hours}h ago`;
+      if (days < 7) return `${days}d ago`;
+      return date.toLocaleDateString();
+    }
+
+    // Handle window resize for chart
+    window.addEventListener('resize', () => {
+      if (reports.length > 0) {
+        renderDailyChart();
+      }
+    });
+
+    loadProfile();
+  </script>
+</body>
+</html>

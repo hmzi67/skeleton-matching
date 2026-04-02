@@ -37,11 +37,13 @@ class ExerciseStateMachine:
 
     PHASES = ("READY", "DOWN", "HOLD", "UP")
 
+    _HYSTERESIS = 5.0
+
     def __init__(
         self,
         down_threshold: float = 120.0,
         up_threshold: float = 155.0,
-        hold_frames: int = 5,
+        hold_frames: int = 2,
     ) -> None:
         self.down_threshold = down_threshold
         self.up_threshold = up_threshold
@@ -73,29 +75,29 @@ class ExerciseStateMachine:
         self._angle_history.append(primary_angle)
         self._current_rep_scores.append(frame_score)
 
+        h = self._HYSTERESIS
+
         if self.phase == "READY":
-            if primary_angle < self.down_threshold:
+            if primary_angle < self.down_threshold + h:
                 self.phase = "DOWN"
                 self._down_frame_count = 1
                 self._current_rep_scores = [frame_score]
 
         elif self.phase == "DOWN":
-            if primary_angle < self.down_threshold:
+            if primary_angle < self.down_threshold + h:
                 self._down_frame_count += 1
                 if self._down_frame_count >= self.hold_frames:
                     self.phase = "HOLD"
             elif primary_angle > self.up_threshold:
-                # Went back up without holding — cancel
                 self.phase = "READY"
                 self._down_frame_count = 0
 
         elif self.phase == "HOLD":
-            if primary_angle > self.up_threshold:
+            if primary_angle > self.up_threshold - h:
                 self.phase = "UP"
 
         elif self.phase == "UP":
-            if primary_angle > self.up_threshold:
-                # Fully stood up — rep complete
+            if primary_angle > self.up_threshold - h:
                 self.rep_count += 1
                 if self._current_rep_scores:
                     avg = sum(self._current_rep_scores) / len(self._current_rep_scores)

@@ -24,6 +24,11 @@
     .num-approved { color:#2dd4bf; }
     .num-rejected { color:#f87171; }
 
+    .section-tabs { display:flex; gap:10px; margin-bottom:28px; flex-wrap:wrap; }
+    .section-tab { padding:12px 24px; border-radius:10px; border:1px solid #252525; background:transparent; color:#9ca3af; font-size:0.95rem; font-weight:700; cursor:pointer; transition:all 0.2s; }
+    .section-tab.active { background:#2dd4bf; color:#000; border-color:#2dd4bf; }
+    .section-tab:hover:not(.active) { background:#181818; color:#fff; border-color:#2dd4bf; }
+
     .tabs { display:flex; gap:10px; margin-bottom:28px; flex-wrap:wrap; }
     .tab { padding:10px 20px; border-radius:10px; border:1px solid #252525; background:transparent; color:#9ca3af; font-size:0.88rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
     .tab.active, .tab:hover { background:#181818; color:#fff; border-color:#2dd4bf; }
@@ -44,7 +49,7 @@
 
     .video-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:20px; }
 
-    .video-card { 
+    .video-card, .category-card { 
       background:linear-gradient(145deg, #181818 0%, #121212 100%); 
       border:1px solid #252525; 
       border-radius:18px; 
@@ -53,12 +58,13 @@
       flex-direction:column;
       transition:all 0.25s ease;
     }
-    .video-card:hover { border-color:#2dd4bf; box-shadow:0 8px 32px rgba(45,212,191,0.08); }
+    .video-card:hover, .category-card:hover { border-color:#2dd4bf; box-shadow:0 8px 32px rgba(45,212,191,0.08); }
     .video-card video { width:100%; height:180px; object-fit:cover; background:#0f0f0f; display:block; }
     .card-body { padding:18px; flex:1; display:flex; flex-direction:column; gap:10px; }
     .card-title { font-weight:700; font-size:1rem; text-transform:capitalize; color:#fff; }
     .card-meta { font-size:0.8rem; color:#6b7280; line-height:1.7; }
     .card-note { font-size:0.8rem; color:#9ca3af; font-style:italic; padding:10px 12px; background:rgba(45,212,191,0.05); border-radius:8px; border-left:2px solid #2dd4bf; }
+    .card-desc { font-size:0.85rem; color:#9ca3af; }
 
     .note-input { width:100%; padding:10px 12px; background:#121212; border:1px solid #252525; border-radius:10px; color:#e5e5e5; font-size:0.85rem; resize:none; outline:none; transition:border-color 0.2s; font-family:inherit; }
     .note-input:focus { border-color:#2dd4bf; }
@@ -67,6 +73,9 @@
     .action-row .btn { flex:1; padding:10px; font-size:0.85rem; }
 
     .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; flex-wrap:wrap; gap:14px; }
+
+    .section-content { display:none; }
+    .section-content.active { display:block; }
 
     @media (max-width:700px) { .filter-row { grid-template-columns:1fr; } }
   </style>
@@ -78,32 +87,59 @@
     <div class="header-row">
       <div>
         <div class="page-title">Admin Panel</div>
-        <p class="page-sub" style="margin-bottom:0">Review and approve submitted reference videos.</p>
+        <p class="page-sub" style="margin-bottom:0">Manage videos and categories.</p>
       </div>
       <a href="/" class="btn btn-ghost">View Site</a>
     </div>
 
-    <div class="stats-row">
-      <div class="stat-card"><div class="num num-pending"  id="statPending">—</div><div class="lbl">Pending</div></div>
-      <div class="stat-card"><div class="num num-approved" id="statApproved">—</div><div class="lbl">Approved</div></div>
-      <div class="stat-card"><div class="num num-rejected" id="statRejected">—</div><div class="lbl">Rejected</div></div>
+    <!-- Section Tabs -->
+    <div class="section-tabs">
+      <button class="section-tab active" data-section="videos">Videos</button>
+      <button class="section-tab" data-section="categories">Categories</button>
     </div>
 
-    <div class="tabs">
-      <button class="tab active" data-filter="pending">Pending</button>
-      <button class="tab" data-filter="approved">Approved</button>
-      <button class="tab" data-filter="rejected">Rejected</button>
-      <button class="tab" data-filter="">All</button>
+    <!-- Videos Section -->
+    <div id="videos-section" class="section-content active">
+      <div class="stats-row">
+        <div class="stat-card"><div class="num num-pending"  id="statPending">—</div><div class="lbl">Pending</div></div>
+        <div class="stat-card"><div class="num num-approved" id="statApproved">—</div><div class="lbl">Approved</div></div>
+        <div class="stat-card"><div class="num num-rejected" id="statRejected">—</div><div class="lbl">Rejected</div></div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-filter="pending">Pending</button>
+        <button class="tab" data-filter="approved">Approved</button>
+        <button class="tab" data-filter="rejected">Rejected</button>
+        <button class="tab" data-filter="">All</button>
+      </div>
+
+      <div class="filter-row">
+        <select id="uploaderSelect" class="filter-input">
+          <option value="">All uploaders</option>
+        </select>
+        <input id="uploaderSearch" class="filter-input" placeholder="Search uploader username or email" />
+      </div>
+
+      <div class="video-grid" id="videoGrid"></div>
     </div>
 
-    <div class="filter-row">
-      <select id="uploaderSelect" class="filter-input">
-        <option value="">All uploaders</option>
-      </select>
-      <input id="uploaderSearch" class="filter-input" placeholder="Search uploader username or email" />
-    </div>
+    <!-- Categories Section -->
+    <div id="categories-section" class="section-content">
+      <div class="stats-row">
+        <div class="stat-card"><div class="num num-pending"  id="catStatPending">—</div><div class="lbl">Pending</div></div>
+        <div class="stat-card"><div class="num num-approved" id="catStatApproved">—</div><div class="lbl">Approved</div></div>
+        <div class="stat-card"><div class="num num-rejected" id="catStatRejected">—</div><div class="lbl">Rejected</div></div>
+      </div>
 
-    <div class="video-grid" id="videoGrid"></div>
+      <div class="tabs" id="categoryTabs">
+        <button class="tab active" data-cat-filter="pending">Pending</button>
+        <button class="tab" data-cat-filter="approved">Approved</button>
+        <button class="tab" data-cat-filter="rejected">Rejected</button>
+        <button class="tab" data-cat-filter="">All</button>
+      </div>
+
+      <div class="video-grid" id="categoryGrid"></div>
+    </div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -121,6 +157,7 @@
 
     const toast = document.getElementById('toast');
     let allVideos = [], currentFilter = 'pending', uploaderFilter = '', uploaderSearch = '';
+    let allCategories = [], currentCatFilter = 'pending';
 
     function showToast(msg, type = 'success') {
       toast.textContent = msg;
@@ -128,6 +165,17 @@
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
+    // Section switching
+    document.querySelectorAll('.section-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`${tab.dataset.section}-section`).classList.add('active');
+      });
+    });
+
+    // ==================== VIDEOS ====================
     async function loadVideos() {
       try {
         const res = await Auth.apiFetch('/api/videos');
@@ -212,7 +260,10 @@
               <div class="action-row">
                 <button class="btn btn-success" onclick="review('${v.id}','approve')">Approve</button>
                 <button class="btn btn-danger"  onclick="review('${v.id}','reject')">Reject</button>
-              </div>` : ''}
+              </div>` : `
+              <div class="action-row">
+                <button class="btn btn-danger" onclick="deleteVideo('${v.id}')">Delete</button>
+              </div>`}
           </div>
         </div>`).join('');
 
@@ -251,9 +302,30 @@
       }
     }
 
-    document.querySelectorAll('.tab').forEach(tab => {
+    async function deleteVideo(id) {
+      if (!confirm('Are you sure you want to delete this video? This cannot be undone.')) return;
+      
+      document.querySelectorAll(`#card-${id} .btn`).forEach(b => b.disabled = true);
+
+      try {
+        const res = await Auth.apiFetch(`/api/videos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Video deleted', 'success');
+          await loadVideos();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed to delete', 'error');
+          document.querySelectorAll(`#card-${id} .btn`).forEach(b => b.disabled = false);
+        }
+      } catch {
+        showToast('Network error', 'error');
+        document.querySelectorAll(`#card-${id} .btn`).forEach(b => b.disabled = false);
+      }
+    }
+
+    document.querySelectorAll('#videos-section .tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('#videos-section .tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         currentFilter = tab.dataset.filter;
         renderGrid();
@@ -270,8 +342,123 @@
       renderGrid();
     });
 
+    // ==================== CATEGORIES ====================
+    async function loadCategories() {
+      try {
+        const res = await Auth.apiFetch('/api/categories?all=true');
+        if (!res.ok) return;
+        allCategories = await res.json();
+        updateCatStats();
+        renderCategoryGrid();
+      } catch {
+        document.getElementById('categoryGrid').innerHTML = `<div class="empty" style="grid-column:1/-1"><p>Could not load categories.</p></div>`;
+      }
+    }
+
+    function updateCatStats() {
+      document.getElementById('catStatPending').textContent  = allCategories.filter(c => c.status === 'pending').length;
+      document.getElementById('catStatApproved').textContent = allCategories.filter(c => c.status === 'approved').length;
+      document.getElementById('catStatRejected').textContent = allCategories.filter(c => c.status === 'rejected').length;
+    }
+
+    function renderCategoryGrid() {
+      const grid = document.getElementById('categoryGrid');
+      const filtered = allCategories.filter(c => {
+        if (currentCatFilter && c.status !== currentCatFilter) return false;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon"><svg width="28" height="28" fill="none" stroke="#525252" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div><p>No categories found.</p></div>`;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(c => `
+        <div class="category-card" id="cat-${c.id}">
+          <div class="card-body">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div class="card-title">${c.name}</div>
+              <span class="badge badge-${c.status}">${c.status}</span>
+            </div>
+            ${c.description ? `<div class="card-desc">${c.description}</div>` : ''}
+            <div class="card-meta">
+              <strong>Suggested by:</strong> ${c.suggested_by?.username || 'Unknown'}<br>
+              <strong>Created:</strong> ${new Date(c.created_at).toLocaleString()}
+            </div>
+            ${c.admin_note ? `<div class="card-note">Note: ${c.admin_note}</div>` : ''}
+            ${c.status === 'pending' ? `
+              <textarea class="note-input" id="cat-note-${c.id}" rows="2" placeholder="Optional note…"></textarea>
+              <div class="action-row">
+                <button class="btn btn-success" onclick="reviewCategory('${c.id}','approve')">Approve</button>
+                <button class="btn btn-danger"  onclick="reviewCategory('${c.id}','reject')">Reject</button>
+              </div>` : `
+              <div class="action-row">
+                <button class="btn btn-danger" onclick="deleteCategory('${c.id}')">Delete</button>
+              </div>`}
+          </div>
+        </div>`).join('');
+    }
+
+    async function reviewCategory(id, action) {
+      const noteEl = document.getElementById(`cat-note-${id}`);
+      const note   = noteEl ? noteEl.value.trim() : '';
+      document.querySelectorAll(`#cat-${id} .btn`).forEach(b => b.disabled = true);
+
+      try {
+        const res = await Auth.apiFetch(`/api/categories/${id}/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note }),
+        });
+        if (res.ok) {
+          showToast(`Category ${action}d`, 'success');
+          await loadCategories();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed', 'error');
+          document.querySelectorAll(`#cat-${id} .btn`).forEach(b => b.disabled = false);
+        }
+      } catch {
+        showToast('Network error', 'error');
+        document.querySelectorAll(`#cat-${id} .btn`).forEach(b => b.disabled = false);
+      }
+    }
+
+    async function deleteCategory(id) {
+      if (!confirm('Are you sure you want to delete this category?')) return;
+      
+      document.querySelectorAll(`#cat-${id} .btn`).forEach(b => b.disabled = true);
+
+      try {
+        const res = await Auth.apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Category deleted', 'success');
+          await loadCategories();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed', 'error');
+          document.querySelectorAll(`#cat-${id} .btn`).forEach(b => b.disabled = false);
+        }
+      } catch {
+        showToast('Network error', 'error');
+        document.querySelectorAll(`#cat-${id} .btn`).forEach(b => b.disabled = false);
+      }
+    }
+
+    document.querySelectorAll('#categoryTabs .tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('#categoryTabs .tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentCatFilter = tab.dataset.catFilter;
+        renderCategoryGrid();
+      });
+    });
+
+    // Load both on start
     loadVideos();
+    loadCategories();
     setInterval(loadVideos, 30000);
+    setInterval(loadCategories, 30000);
   </script>
 </body>
 </html>

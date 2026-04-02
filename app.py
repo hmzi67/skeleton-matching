@@ -29,7 +29,8 @@ from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 from flask_cors import CORS
 from prisma import Prisma
-from src.exercise_weights import get_weights
+from src.calibration import calibrate_from_skeleton, compute_adaptive_thresholds
+from src.exercise_weights import get_weights, compute_auto_weights, EXERCISE_WEIGHTS
 from src.extractor import extract_skeleton_from_video, load_skeleton
 from src.feedback import generate_feedback
 from src.filters import LandmarkSmoother
@@ -133,15 +134,103 @@ _pose_detector = PoseLandmarker.create_from_options(
 
 
 @dataclass
+class TemporalAligner:
+    """Tracks the user's progress through the reference sequence independently
+    of the reference video's wall-clock position.
+
+    Instead of anchoring to ref_time_ms (which penalises delayed users), this
+    tracks the last-matched reference index and advances forward as the user
+    progresses. The ref_time_ms is used only for loop detection and as a
+    secondary catch-up anchor.
+    """
+    last_matched_idx: int = 0
+    smoothed_offset_ms: float = 0.0
+    _prev_ref_time_ms: float = 0.0
+    _offset_ema_alpha: float = 0.15
+    _forward_window: int = 8
+    _backward_tolerance: int = 3
+
+    def compute_search_range(
+        self,
+        ref_time_ms: float,
+        ref_timestamps_ms: list[float],
+        ref_len: int,
+        base_window: int = 5,
+    ) -> tuple[int, int]:
+        """Return (start, end) search range prioritising user progress."""
+        ref_idx = _closest_reference_index(ref_timestamps_ms, ref_time_ms)
+
+        if self._detect_loop(ref_time_ms):
+            self.last_matched_idx = 0
+            self.smoothed_offset_ms = 0.0
+
+        progress = self.last_matched_idx
+        p_start = max(0, progress - self._backward_tolerance)
+        p_end = min(ref_len - 1, progress + self._forward_window)
+
+        r_start = max(0, ref_idx - base_window)
+        r_end = min(ref_len - 1, ref_idx + base_window)
+
+        search_start = min(p_start, r_start)
+        search_end = max(p_end, r_end)
+
+        self._prev_ref_time_ms = ref_time_ms
+        return search_start, search_end
+
+    def update_after_match(
+        self,
+        best_idx: int,
+        ref_time_ms: float,
+        ref_timestamps_ms: list[float],
+    ) -> None:
+        """Update progress anchor and offset estimate after a successful match."""
+        if best_idx >= self.last_matched_idx - self._backward_tolerance:
+            self.last_matched_idx = best_idx
+
+        ref_idx = _closest_reference_index(ref_timestamps_ms, ref_time_ms)
+        if ref_idx < len(ref_timestamps_ms) and best_idx < len(ref_timestamps_ms):
+            offset = ref_timestamps_ms[ref_idx] - ref_timestamps_ms[best_idx]
+            self.smoothed_offset_ms = (
+                (1 - self._offset_ema_alpha) * self.smoothed_offset_ms
+                + self._offset_ema_alpha * offset
+            )
+
+    def _detect_loop(self, ref_time_ms: float) -> bool:
+        """Detect when the reference video loops (time jumps backward)."""
+        if self._prev_ref_time_ms > 0 and ref_time_ms < self._prev_ref_time_ms - 1000:
+            return True
+        return False
+
+    @property
+    def offset_ms(self) -> float:
+        return self.smoothed_offset_ms
+
+    @property
+    def timing_status(self) -> str:
+        if abs(self.smoothed_offset_ms) < 300:
+            return "synced"
+        if self.smoothed_offset_ms > 0:
+            return "behind" if self.smoothed_offset_ms < 2000 else "far_behind"
+        return "ahead"
+
+
+@dataclass
 class LiveSessionState:
     user_id: str
     ref_video_id: str
     exercise: str
     gt_norm: list[dict]
     ref_timestamps_ms: list[float]
-    smoothed_score: float = 50.0
+    auto_weights: dict[str, float] = field(default_factory=dict)
+    adaptive_thresholds: dict[str, dict[str, float]] | None = None
+    primary_joint: str = "left_knee"
+    primary_min: float = 120.0
+    primary_max: float = 170.0
+    smoothed_score: float = 0.0
     last_live_angles: dict[str, float] | None = None
     last_live_ts_ms: float | None = None
+    idle_frame_count: int = 0
+    temporal_aligner: TemporalAligner = field(default_factory=TemporalAligner)
     phase_machine: ExerciseStateMachine = field(default_factory=ExerciseStateMachine)
     landmark_smoother: LandmarkSmoother = field(
         default_factory=lambda: LandmarkSmoother(min_cutoff=2.5, beta=0.4),
@@ -374,25 +463,57 @@ def _closest_reference_index(ref_timestamps_ms: list[float], ref_time_ms: float)
     return idx - 1 if abs(ref_time_ms - left) <= abs(right - ref_time_ms) else idx
 
 
-def _primary_angle_for_exercise(exercise: str, angles: dict[str, float]) -> float:
-    if exercise in {"squat", "lunge"}:
-        return (angles.get("left_knee", 0.0) + angles.get("right_knee", 0.0)) / 2.0
-    if exercise == "deadlift":
-        return (angles.get("left_hip", 0.0) + angles.get("right_hip", 0.0)) / 2.0
-    if exercise in {"pushup", "shoulder_press"}:
-        return (angles.get("left_elbow", 0.0) + angles.get("right_elbow", 0.0)) / 2.0
+_CURATED_PRIMARY_ANGLES: dict[str, list[str]] = {
+    "squat":          ["left_knee", "right_knee"],
+    "lunge":          ["left_knee", "right_knee"],
+    "deadlift":       ["left_hip", "right_hip"],
+    "pushup":         ["left_elbow", "right_elbow"],
+    "shoulder_press": ["left_elbow", "right_elbow"],
+}
+
+_SYMMETRY_MAP: dict[str, str] = {
+    "left_knee": "right_knee", "right_knee": "left_knee",
+    "left_hip": "right_hip", "right_hip": "left_hip",
+    "left_elbow": "right_elbow", "right_elbow": "left_elbow",
+    "left_shoulder": "right_shoulder", "right_shoulder": "left_shoulder",
+}
+
+
+def _primary_angle_for_exercise(
+    exercise: str,
+    angles: dict[str, float],
+    primary_joint: str | None = None,
+) -> float:
+    """Return the primary angle for phase detection.
+
+    Uses curated joint list for known exercises; for unknown exercises
+    uses the ROM-derived ``primary_joint`` (averaging with its symmetry
+    counterpart when available).
+    """
+    curated = _CURATED_PRIMARY_ANGLES.get(exercise.lower())
+    if curated:
+        vals = [angles.get(j, 0.0) for j in curated]
+        return sum(vals) / max(len(vals), 1)
+
+    if primary_joint:
+        val = angles.get(primary_joint, 0.0)
+        sym = _SYMMETRY_MAP.get(primary_joint)
+        if sym and sym in angles:
+            val = (val + angles[sym]) / 2.0
+        return val
+
     return (angles.get("left_knee", 0.0) + angles.get("right_knee", 0.0)) / 2.0
 
 
 def _state_machine_for_exercise(exercise: str) -> ExerciseStateMachine:
     if exercise in {"squat", "lunge"}:
-        return ExerciseStateMachine(down_threshold=120.0, up_threshold=155.0, hold_frames=4)
+        return ExerciseStateMachine(down_threshold=120.0, up_threshold=155.0, hold_frames=2)
     if exercise == "deadlift":
-        return ExerciseStateMachine(down_threshold=100.0, up_threshold=150.0, hold_frames=3)
+        return ExerciseStateMachine(down_threshold=100.0, up_threshold=150.0, hold_frames=2)
     if exercise == "pushup":
-        return ExerciseStateMachine(down_threshold=95.0, up_threshold=155.0, hold_frames=3)
+        return ExerciseStateMachine(down_threshold=95.0, up_threshold=155.0, hold_frames=2)
     if exercise == "shoulder_press":
-        return ExerciseStateMachine(down_threshold=90.0, up_threshold=150.0, hold_frames=3)
+        return ExerciseStateMachine(down_threshold=90.0, up_threshold=150.0, hold_frames=2)
     return ExerciseStateMachine()
 
 
@@ -479,6 +600,51 @@ def _live_session_key(user_id: str, ref_id: str, exercise: str) -> str:
     return f"{user_id}:{ref_id}:{exercise}"
 
 
+def _build_session_config(
+    gt_norm: list[dict], exercise: str,
+) -> dict:
+    """Derive auto-weights, adaptive thresholds, primary joint, and
+    phase-machine parameters from the reference video ROM.
+
+    Curated presets override auto-weights for known exercises.
+    """
+    auto = compute_auto_weights(gt_norm)
+
+    if exercise.lower() in EXERCISE_WEIGHTS and exercise.lower() != "default":
+        weights = get_weights(exercise)
+    else:
+        weights = auto["weights"]
+
+    rom_profile = calibrate_from_skeleton(gt_norm)
+    adaptive_thresholds = compute_adaptive_thresholds(rom_profile)
+
+    primary_joint = auto["primary_joint"]
+    primary_min = auto["primary_min"]
+    primary_max = auto["primary_max"]
+
+    rom_range = primary_max - primary_min
+    down_thresh = primary_min + rom_range * 0.20
+    up_thresh = primary_max - rom_range * 0.20
+
+    if exercise.lower() in {"squat", "lunge", "deadlift", "pushup", "shoulder_press"}:
+        phase_machine = _state_machine_for_exercise(exercise)
+    else:
+        phase_machine = ExerciseStateMachine(
+            down_threshold=down_thresh,
+            up_threshold=up_thresh,
+            hold_frames=2,
+        )
+
+    return {
+        "auto_weights": weights,
+        "adaptive_thresholds": adaptive_thresholds,
+        "primary_joint": primary_joint,
+        "primary_min": primary_min,
+        "primary_max": primary_max,
+        "phase_machine": phase_machine,
+    }
+
+
 def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveSessionState:
     key = _live_session_key(user_id, ref_id, exercise)
     existing = _http_live_states.get(key)
@@ -487,13 +653,19 @@ def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveS
 
     gt_norm = _load_or_extract_reference_norm(ref_id)
     ref_timestamps_ms = [float(frame.get("timestamp_ms", 0.0)) for frame in gt_norm]
+    cfg = _build_session_config(gt_norm, exercise)
     state = LiveSessionState(
         user_id=user_id,
         ref_video_id=ref_id,
         exercise=exercise,
         gt_norm=gt_norm,
         ref_timestamps_ms=ref_timestamps_ms,
-        phase_machine=_state_machine_for_exercise(exercise),
+        auto_weights=cfg["auto_weights"],
+        adaptive_thresholds=cfg["adaptive_thresholds"],
+        primary_joint=cfg["primary_joint"],
+        primary_min=cfg["primary_min"],
+        primary_max=cfg["primary_max"],
+        phase_machine=cfg["phase_machine"],
     )
     _http_live_states[key] = state
     return state
@@ -551,29 +723,47 @@ def _process_live_frame_message(
     )
     live_angles = _extract_angles(live_landmarks)
     now_ms = time.time() * 1000.0
-    live_velocities = _compute_live_velocities(state, live_angles, now_ms)
+
+    _IDLE_ANGLE_THRESHOLD = 3.0
+    _IDLE_FRAME_LIMIT = 10
+    _IDLE_SCORE_CAP = 30.0
+
+    if state.last_live_angles is not None:
+        total_angle_change = sum(
+            abs(live_angles.get(j, 0.0) - state.last_live_angles.get(j, 0.0))
+            for j in live_angles
+        )
+        if total_angle_change < _IDLE_ANGLE_THRESHOLD:
+            state.idle_frame_count += 1
+        else:
+            state.idle_frame_count = 0
+    user_is_idle = state.idle_frame_count >= _IDLE_FRAME_LIMIT
+
+    _compute_live_velocities(state, live_angles, now_ms)
 
     user_frame = {
         "angles": live_angles,
-        "velocities": live_velocities,
     }
 
     match_t0 = time.perf_counter()
-    base_idx = _closest_reference_index(state.ref_timestamps_ms, ref_time_ms)
-    window_start = max(0, base_idx - LIVE_MATCH_WINDOW)
-    window_end = min(len(state.gt_norm) - 1, base_idx + LIVE_MATCH_WINDOW)
 
-    best_idx = base_idx
+    aligner = state.temporal_aligner
+    search_start, search_end = aligner.compute_search_range(
+        ref_time_ms, state.ref_timestamps_ms,
+        len(state.gt_norm), base_window=LIVE_MATCH_WINDOW,
+    )
+
+    best_idx = aligner.last_matched_idx
     best_match = None
     best_score = -1.0
-    weights = get_weights(state.exercise)
 
-    for idx in range(window_start, window_end + 1):
+    for idx in range(search_start, search_end + 1):
         candidate = state.gt_norm[idx]
         candidate_match = match_single_frame(
             candidate,
             user_frame,
-            exercise_weights=weights,
+            exercise_weights=state.auto_weights,
+            adaptive_thresholds=state.adaptive_thresholds,
         )
         candidate_score = float(candidate_match.get("overall_score", 0.0))
         if candidate_score > best_score:
@@ -584,7 +774,11 @@ def _process_live_frame_message(
     if not best_match:
         return {"type": "error", "error": "matching_failed"}
 
-    state.smoothed_score = 0.3 * best_score + 0.7 * state.smoothed_score
+    if user_is_idle:
+        best_score = min(best_score, _IDLE_SCORE_CAP)
+
+    aligner.update_after_match(best_idx, ref_time_ms, state.ref_timestamps_ms)
+    state.smoothed_score = 0.5 * best_score + 0.5 * state.smoothed_score
     best_match["overall_score"] = state.smoothed_score
 
     summary_stub = {
@@ -595,10 +789,15 @@ def _process_live_frame_message(
         "frame_scores": [],
     }
     feedback = generate_feedback(summary_stub, best_match)
-    primary_angle = _primary_angle_for_exercise(state.exercise, live_angles)
+    primary_angle = _primary_angle_for_exercise(
+        state.exercise, live_angles, primary_joint=state.primary_joint,
+    )
     phase = state.phase_machine.update(primary_angle, state.smoothed_score)
 
     gt_frame = state.gt_norm[best_idx]
+
+    display_ref_idx = _closest_reference_index(state.ref_timestamps_ms, ref_time_ms)
+    display_ref_frame = state.gt_norm[display_ref_idx]
 
     joint_statuses = _compute_joint_statuses(best_match)
     bone_statuses = _compute_bone_statuses(best_match)
@@ -608,6 +807,18 @@ def _process_live_frame_message(
     coaching_text = joint_fb[0]["instruction"] if joint_fb else (
         "Great form!" if state.smoothed_score >= 80 else feedback.get("priority_fix", "")
     )
+
+    if user_is_idle:
+        coaching_text = "Start following the reference exercise"
+
+    timing_status = aligner.timing_status
+    offset_ms = aligner.offset_ms
+
+    if not user_is_idle:
+        if timing_status == "far_behind" and state.smoothed_score >= 70:
+            coaching_text = "Good form! Try to keep up with the model"
+        elif timing_status == "behind" and state.smoothed_score >= 85:
+            coaching_text = coaching_text or "Great form!"
 
     payload = {
         "type": "frame_result",
@@ -622,7 +833,7 @@ def _process_live_frame_message(
         "coaching_text": coaching_text,
         "connections": POSE_CONNECTIONS,
         "live_landmarks": live_landmarks,
-        "ref_landmarks": gt_frame.get("landmarks", []),
+        "ref_landmarks": display_ref_frame.get("landmarks", []),
         "feedback": {
             "headline": feedback.get("headline", ""),
             "priority_fix": feedback.get("priority_fix", ""),
@@ -632,6 +843,10 @@ def _process_live_frame_message(
         },
         "phase": phase,
         "rep_count": int(state.phase_machine.rep_count),
+        "temporal": {
+            "offset_ms": round(offset_ms),
+            "status": timing_status,
+        },
     }
     if LIVE_MATCH_DEBUG_TIMINGS:
         payload["timings"] = {
@@ -700,13 +915,22 @@ def page_register():  return app.send_static_file("register.html")
 def page_upload():    return app.send_static_file("upload.html")
 
 @app.route("/dashboard")
-def page_dashboard(): return app.send_static_file("dashboard.html")
+def page_dashboard(): return app.send_static_file("app.html")
 
 @app.route("/exercise")
 def page_exercise():  return app.send_static_file("exercise.html")
 
+@app.route("/reports")
+def page_reports():   return app.send_static_file("app.html")
+
+@app.route("/profile")
+def page_profile():   return app.send_static_file("app.html")
+
 @app.route("/admin")
-def page_admin():     return app.send_static_file("admin.html")
+def page_admin():     return app.send_static_file("app.html")
+
+@app.route("/app")
+def page_app():       return app.send_static_file("app.html")
 
 
 # ---------------------------------------------------------------------------
@@ -787,6 +1011,22 @@ def me():
         "id":       request.user["sub"],
         "username": request.user["username"],
         "role":     request.user["role"],
+    })
+
+
+@app.route("/api/me", methods=["GET"])
+@require_auth
+def me_profile():
+    """Get detailed user profile info."""
+    user = db.user.find_unique(where={"id": request.user["sub"]})
+    if not user:
+        abort(404)
+    return jsonify({
+        "id":         user.id,
+        "username":   user.username,
+        "email":      user.email,
+        "role":       str(user.role),
+        "created_at": user.createdAt.isoformat(),
     })
 
 
@@ -955,13 +1195,19 @@ if sock is not None:
             ws.send(json.dumps({"type": "error", "error": "reference_skeleton_empty"}))
             return
 
+        cfg = _build_session_config(gt_norm, exercise)
         state = LiveSessionState(
             user_id=str(auth_payload["sub"]),
             ref_video_id=ref_id,
             exercise=exercise,
             gt_norm=gt_norm,
             ref_timestamps_ms=[float(frame.get("timestamp_ms", 0.0)) for frame in gt_norm],
-            phase_machine=_state_machine_for_exercise(exercise),
+            auto_weights=cfg["auto_weights"],
+            adaptive_thresholds=cfg["adaptive_thresholds"],
+            primary_joint=cfg["primary_joint"],
+            primary_min=cfg["primary_min"],
+            primary_max=cfg["primary_max"],
+            phase_machine=cfg["phase_machine"],
         )
 
         ws.send(json.dumps({
@@ -1072,6 +1318,130 @@ def my_uploads():
 
 
 # ---------------------------------------------------------------------------
+# Categories
+# ---------------------------------------------------------------------------
+
+@app.route("/api/categories", methods=["GET"])
+def list_categories():
+    """List approved categories (public) or all categories (admin)."""
+    auth_header = _get_bearer()
+    is_admin = False
+    if auth_header:
+        data = _decode_token_and_session(auth_header)
+        if data and data.get("role") == "admin":
+            is_admin = True
+
+    if is_admin and request.args.get("all") == "true":
+        categories = db.category.find_many(
+            include={"suggestedBy": True},
+            order={"createdAt": "desc"},
+        )
+    else:
+        categories = db.category.find_many(
+            where={"status": "approved"},
+            order={"name": "asc"},
+        )
+
+    return jsonify([{
+        "id":          c.id,
+        "name":        c.name,
+        "description": c.description,
+        "status":      str(c.status),
+        "admin_note":  c.adminNote if is_admin else None,
+        "created_at":  c.createdAt.isoformat(),
+        "suggested_by": {
+            "id": c.suggestedBy.id,
+            "username": c.suggestedBy.username,
+        } if is_admin and hasattr(c, "suggestedBy") and c.suggestedBy else None,
+    } for c in categories])
+
+
+@app.route("/api/categories", methods=["POST"])
+@require_auth
+def create_category():
+    """User suggests a new category (pending admin approval)."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    description = (data.get("description") or "").strip()
+
+    if not name:
+        return jsonify({"error": "Category name is required"}), 400
+    if len(name) > 100:
+        return jsonify({"error": "Category name too long (max 100 chars)"}), 400
+
+    existing = db.category.find_first(where={"name": name})
+    if existing:
+        return jsonify({"error": "Category already exists"}), 409
+
+    category = db.category.create(data={
+        "name":          name,
+        "description":   description or None,
+        "suggestedById": request.user["sub"],
+        "status":        "pending",
+    })
+
+    return jsonify({
+        "message": "Category submitted for approval",
+        "id":      category.id,
+        "name":    category.name,
+    }), 201
+
+
+@app.route("/api/categories/<category_id>/approve", methods=["POST"])
+@require_admin
+def approve_category(category_id: str):
+    """Admin approves a category."""
+    record = db.category.find_unique(where={"id": category_id})
+    if not record:
+        abort(404)
+
+    note = (request.get_json(silent=True) or {}).get("note", "")
+
+    db.category.update(
+        where={"id": category_id},
+        data={
+            "status":     "approved",
+            "adminNote":  note or None,
+            "reviewedAt": datetime.now(timezone.utc),
+        },
+    )
+    return jsonify({"message": "Category approved"})
+
+
+@app.route("/api/categories/<category_id>/reject", methods=["POST"])
+@require_admin
+def reject_category(category_id: str):
+    """Admin rejects a category."""
+    record = db.category.find_unique(where={"id": category_id})
+    if not record:
+        abort(404)
+
+    note = (request.get_json(silent=True) or {}).get("note", "")
+
+    db.category.update(
+        where={"id": category_id},
+        data={
+            "status":     "rejected",
+            "adminNote":  note or None,
+            "reviewedAt": datetime.now(timezone.utc),
+        },
+    )
+    return jsonify({"message": "Category rejected"})
+
+
+@app.route("/api/categories/<category_id>", methods=["DELETE"])
+@require_admin
+def delete_category(category_id: str):
+    """Admin deletes a category."""
+    record = db.category.find_unique(where={"id": category_id})
+    if not record:
+        abort(404)
+
+    db.category.delete(where={"id": category_id})
+    return jsonify({"message": "Category deleted"})
+
+
+# ---------------------------------------------------------------------------
 # Admin — list all videos
 # ---------------------------------------------------------------------------
 
@@ -1145,8 +1515,255 @@ def reject_video(video_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Delete video (admin or owner)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>", methods=["DELETE"])
+@require_auth
+def delete_video(video_id: str):
+    """Delete a video. Admin can delete any, users can only delete their own."""
+    record = db.video.find_unique(where={"id": video_id})
+    if not record:
+        abort(404)
+
+    user_id = request.user["sub"]
+    is_admin = request.user.get("role") == "admin"
+
+    # Check permission: admin can delete any, user can only delete their own
+    if not is_admin and record.uploaderId != user_id:
+        return jsonify({"error": "You can only delete your own videos"}), 403
+
+    # Delete the video file
+    pending_path = PENDING_DIR / record.storedName
+    approved_path = APPROVED_DIR / record.storedName
+    
+    if pending_path.exists():
+        pending_path.unlink()
+    if approved_path.exists():
+        approved_path.unlink()
+
+    # Delete skeleton cache if exists
+    skeleton_cache = Path("data/skeletons") / f"{video_id}.json"
+    if skeleton_cache.exists():
+        skeleton_cache.unlink()
+
+    # Delete from database
+    db.video.delete(where={"id": video_id})
+
+    return jsonify({"message": "Video deleted", "id": video_id})
+
+
+# ---------------------------------------------------------------------------
+# Exercise Reports
+# ---------------------------------------------------------------------------
+
+def calculate_grade(avg_score: float) -> str:
+    """Calculate letter grade from average score."""
+    if avg_score >= 90:
+        return "A"
+    elif avg_score >= 80:
+        return "B"
+    elif avg_score >= 70:
+        return "C"
+    elif avg_score >= 60:
+        return "D"
+    else:
+        return "F"
+
+
+@app.route("/api/reports", methods=["POST"])
+@require_auth
+def create_report():
+    """Save an exercise session report."""
+    user_id = request.user["sub"]
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    required_fields = ["exercise", "reference_video_id", "duration_seconds", "score_history"]
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+    
+    score_history = data.get("score_history", [])
+    scores = [s for s in score_history if isinstance(s, (int, float))]
+    
+    avg_score = sum(scores) / len(scores) if scores else 0
+    min_score = min(scores) if scores else 0
+    max_score = max(scores) if scores else 0
+    overall_grade = calculate_grade(avg_score)
+    
+    import json
+    
+    report = db.exercisereport.create(
+        data={
+            "userId": user_id,
+            "exercise": data.get("exercise", "Unknown"),
+            "referenceVideoId": data.get("reference_video_id", ""),
+            "durationSeconds": data.get("duration_seconds", 0),
+            "totalFrames": len(scores),
+            "repCount": data.get("rep_count", 0),
+            "avgScore": round(avg_score, 2),
+            "minScore": round(min_score, 2),
+            "maxScore": round(max_score, 2),
+            "scoreHistory": json.dumps(score_history),
+            "phaseHistory": json.dumps(data.get("phase_history", [])),
+            "jointIssues": json.dumps(data.get("joint_issues", {})),
+            "boneIssues": json.dumps(data.get("bone_issues", {})),
+            "feedbackSummary": json.dumps(data.get("feedback_summary", [])),
+            "overallGrade": overall_grade,
+        }
+    )
+    
+    return jsonify({
+        "message": "Report saved",
+        "report_id": report.id,
+        "grade": overall_grade,
+        "avg_score": round(avg_score, 2),
+    }), 201
+
+
+@app.route("/api/reports", methods=["GET"])
+@require_auth
+def get_reports():
+    """Get user's exercise reports."""
+    user_id = request.user["sub"]
+    is_admin = request.user.get("role") == "admin"
+    
+    # Admin can see all reports with ?all=true
+    if is_admin and request.args.get("all") == "true":
+        reports = db.exercisereport.find_many(
+            order={"createdAt": "desc"},
+            include={"user": True}
+        )
+    else:
+        reports = db.exercisereport.find_many(
+            where={"userId": user_id},
+            order={"createdAt": "desc"}
+        )
+    
+    import json
+    
+    return jsonify([{
+        "id": r.id,
+        "exercise": r.exercise,
+        "reference_video_id": r.referenceVideoId,
+        "duration_seconds": r.durationSeconds,
+        "total_frames": r.totalFrames,
+        "rep_count": r.repCount,
+        "avg_score": r.avgScore,
+        "min_score": r.minScore,
+        "max_score": r.maxScore,
+        "overall_grade": r.overallGrade,
+        "score_history": json.loads(r.scoreHistory),
+        "phase_history": json.loads(r.phaseHistory),
+        "joint_issues": json.loads(r.jointIssues),
+        "bone_issues": json.loads(r.boneIssues),
+        "feedback_summary": json.loads(r.feedbackSummary),
+        "created_at": r.createdAt.isoformat(),
+        "user": {
+            "id": r.user.id,
+            "username": r.user.username
+        } if hasattr(r, 'user') and r.user else None
+    } for r in reports])
+
+
+@app.route("/api/reports/<report_id>", methods=["GET"])
+@require_auth
+def get_report(report_id: str):
+    """Get a specific report."""
+    user_id = request.user["sub"]
+    is_admin = request.user.get("role") == "admin"
+    
+    report = db.exercisereport.find_unique(
+        where={"id": report_id},
+        include={"user": True}
+    )
+    
+    if not report:
+        abort(404)
+    
+    # Users can only view their own reports, admins can view all
+    if not is_admin and report.userId != user_id:
+        return jsonify({"error": "Access denied"}), 403
+    
+    import json
+    
+    return jsonify({
+        "id": report.id,
+        "exercise": report.exercise,
+        "reference_video_id": report.referenceVideoId,
+        "duration_seconds": report.durationSeconds,
+        "total_frames": report.totalFrames,
+        "rep_count": report.repCount,
+        "avg_score": report.avgScore,
+        "min_score": report.minScore,
+        "max_score": report.maxScore,
+        "overall_grade": report.overallGrade,
+        "score_history": json.loads(report.scoreHistory),
+        "phase_history": json.loads(report.phaseHistory),
+        "joint_issues": json.loads(report.jointIssues),
+        "bone_issues": json.loads(report.boneIssues),
+        "feedback_summary": json.loads(report.feedbackSummary),
+        "created_at": report.createdAt.isoformat(),
+        "user": {
+            "id": report.user.id,
+            "username": report.user.username
+        } if report.user else None
+    })
+
+
+@app.route("/api/reports/<report_id>", methods=["DELETE"])
+@require_auth
+def delete_report(report_id: str):
+    """Delete a report. Users can delete their own, admins can delete any."""
+    user_id = request.user["sub"]
+    is_admin = request.user.get("role") == "admin"
+    
+    report = db.exercisereport.find_unique(where={"id": report_id})
+    
+    if not report:
+        abort(404)
+    
+    if not is_admin and report.userId != user_id:
+        return jsonify({"error": "You can only delete your own reports"}), 403
+    
+    db.exercisereport.delete(where={"id": report_id})
+    
+    return jsonify({"message": "Report deleted", "id": report_id})
+
+
+# ---------------------------------------------------------------------------
+# Admin: Users API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/users", methods=["GET"])
+@require_admin
+def get_users():
+    """Get all users (admin only)."""
+    users = db.user.find_many(
+        order={"createdAt": "desc"},
+        include={
+            "videos": True,
+            "exerciseReports": True
+        }
+    )
+    
+    return jsonify([{
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "role": str(u.role),
+        "created_at": u.createdAt.isoformat(),
+        "video_count": len(u.videos) if u.videos else 0,
+        "report_count": len(u.exerciseReports) if u.exerciseReports else 0,
+    } for u in users])
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

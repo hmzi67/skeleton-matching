@@ -20,6 +20,12 @@ enum VideoStatus {
   rejected
 }
 
+enum CategoryStatus {
+  pending
+  approved
+  rejected
+}
+
 model User {
   id         String   @id @default(uuid())
   username   String   @unique
@@ -28,8 +34,10 @@ model User {
   role       Role     @default(user)
   createdAt  DateTime @default(now())
 
-  videos     Video[]
-  sessions   Session[]
+  videos              Video[]
+  sessions            Session[]
+  suggestedCategories Category[]
+  exerciseReports     ExerciseReport[]
 }
 
 model Session {
@@ -54,4 +62,51 @@ model Video {
 
   uploaderId   String
   uploader     User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  categoryId   String?
+  category     Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+}
+
+model Category {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  description String?
+  status      CategoryStatus @default(pending)
+  adminNote   String?
+  createdAt   DateTime       @default(now())
+  reviewedAt  DateTime?
+
+  suggestedById String
+  suggestedBy   User     @relation(fields: [suggestedById], references: [id], onDelete: Cascade)
+
+  videos        Video[]
+}
+
+model ExerciseReport {
+  id              String   @id @default(uuid())
+  
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  exercise        String
+  referenceVideoId String
+  
+  durationSeconds Int
+  totalFrames     Int
+  repCount        Int
+  
+  avgScore        Float
+  minScore        Float
+  maxScore        Float
+  
+  scoreHistory    String   // JSON array of scores
+  phaseHistory    String   // JSON array of phases
+  
+  jointIssues     String   // JSON object tracking problematic joints
+  boneIssues      String   // JSON object tracking problematic bones
+  feedbackSummary String   // JSON array of feedback items given
+  
+  overallGrade    String   // A, B, C, D, F
+  
+  createdAt       DateTime @default(now())
 }

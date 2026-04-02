@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Reports — Pose Matcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-label {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .report-list { display: flex; flex-direction: column; gap: 16px; }
+
+    .report-item {
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
+      border: 1px solid #252525;
+      border-radius: 16px;
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 20px;
+      transition: all 0.25s ease;
+    }
+    .report-item:hover { border-color: #2dd4bf; box-shadow: 0 8px 32px rgba(45, 212, 191, 0.08); }
+
+    .score-badge {
+      width: 60px;
+      height: 60px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #fff;
+    }
+    .score-badge.high { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+    .score-badge.medium { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #0f0f0f; }
+    .score-badge.low { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+
+    .report-info { flex: 1; min-width: 160px; }
+    .report-exercise { font-weight: 700; font-size: 1rem; text-transform: capitalize; color: #fff; }
+    .report-meta { font-size: 0.8rem; color: #6b7280; margin-top: 6px; line-height: 1.7; }
+
+    .report-stats {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .mini-stat {
+      text-align: center;
+    }
+    .mini-stat-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .mini-stat-label {
+      font-size: 0.7rem;
+      color: #6b7280;
+      text-transform: uppercase;
+    }
+
+    .report-actions { display: flex; gap: 10px; }
+
+    .btn-view {
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-view:hover {
+      background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+    }
+
+    .btn-delete {
+      background: transparent;
+      border: 1px solid #ef4444;
+      color: #ef4444;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-delete:hover {
+      background: #ef4444;
+      color: #fff;
+    }
+
+    .header-row { 
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between; 
+      margin-bottom: 32px; 
+      flex-wrap: wrap; 
+      gap: 16px; 
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    /* Report Detail Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .modal-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+    .modal-content {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 20px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+      transform: scale(0.9);
+      transition: transform 0.3s ease;
+    }
+    .modal-overlay.visible .modal-content {
+      transform: scale(1);
+    }
+    .modal-header {
+      padding: 24px 24px 16px;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 1.5rem;
+      padding: 4px;
+    }
+    .modal-body { padding: 24px; }
+
+    .detail-score-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .detail-score-circle {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.2rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+    .detail-score-circle.high { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+    .detail-score-circle.medium { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #0f0f0f; }
+    .detail-score-circle.low { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+    .detail-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .detail-stat {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+    .detail-stat-value {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .detail-stat-label {
+      font-size: 0.7rem;
+      color: #6b7280;
+      margin-top: 4px;
+      text-transform: uppercase;
+    }
+    .detail-chart {
+      margin-bottom: 24px;
+    }
+    .detail-chart-title {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 12px;
+    }
+    #detailScoreChart {
+      width: 100%;
+      height: 120px;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+    }
+    .detail-issues {
+      margin-bottom: 24px;
+    }
+    .detail-issues-title {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 12px;
+    }
+    .issue-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .issue-badge {
+      font-size: 0.78rem;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid;
+    }
+    .issue-badge.joint { border-color: rgba(251, 191, 36, 0.4); color: #fde68a; background: rgba(251, 191, 36, 0.1); }
+    .issue-badge.bone { border-color: rgba(239, 68, 68, 0.4); color: #fecaca; background: rgba(239, 68, 68, 0.1); }
+    .issue-detail {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+    .issue-detail-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fde68a;
+      text-transform: capitalize;
+    }
+    .issue-detail-count {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+    .detail-tips {
+      margin-bottom: 24px;
+    }
+    .detail-tips-title {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 12px;
+    }
+    .tip-item {
+      font-size: 0.82rem;
+      color: #d4d4d4;
+      padding: 8px 14px;
+      background: rgba(45, 212, 191, 0.06);
+      border-left: 3px solid #14b8a6;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 6px;
+    }
+
+    @media (max-width: 600px) {
+      .report-item {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+      .score-badge {
+        margin: 0 auto;
+      }
+      .report-stats {
+        justify-content: center;
+      }
+      .report-actions {
+        justify-content: center;
+      }
+      .detail-stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <a class="nav-logo" href="/">Pose Matcher</a>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/upload">Upload</a>
+      <a href="/dashboard">My Uploads</a>
+      <a href="/reports" class="active">My Reports</a>
+      <a href="/profile">Profile</a>
+      <span id="navUser"></span>
+      <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container" style="max-width: 900px; margin-top: 100px;">
+    <div class="header-row">
+      <h1>My Exercise Reports</h1>
+    </div>
+
+    <div class="stats-grid" id="summaryStats">
+      <div class="stat-card">
+        <div class="stat-value" id="totalSessions">--</div>
+        <div class="stat-label">Total Sessions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="avgScore">--</div>
+        <div class="stat-label">Avg Score</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="totalTime">--</div>
+        <div class="stat-label">Total Time</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="totalReps">--</div>
+        <div class="stat-label">Total Reps</div>
+      </div>
+    </div>
+
+    <div class="report-list" id="reportList">
+      <div class="empty-state">
+        <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/>
+        </svg>
+        <p>No exercise reports yet.<br>Complete an exercise session to see your reports here.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Report Detail Modal -->
+  <div class="modal-overlay" id="detailModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="detailExercise">Exercise Report</h2>
+        <button class="modal-close" id="detailCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-score-section">
+          <div class="detail-score-circle" id="detailScoreCircle">--</div>
+          <div style="font-size:0.85rem;color:#9ca3af;">Avg Score</div>
+          <div style="font-size:0.78rem;color:#6b7280;margin-top:4px;" id="detailDate">--</div>
+        </div>
+        <div class="detail-stats-grid">
+          <div class="detail-stat">
+            <div class="detail-stat-value" id="detailAvgScore">--</div>
+            <div class="detail-stat-label">Avg Score</div>
+          </div>
+          <div class="detail-stat">
+            <div class="detail-stat-value" id="detailDuration">--</div>
+            <div class="detail-stat-label">Duration</div>
+          </div>
+          <div class="detail-stat">
+            <div class="detail-stat-value" id="detailReps">--</div>
+            <div class="detail-stat-label">Reps</div>
+          </div>
+          <div class="detail-stat">
+            <div class="detail-stat-value" id="detailMinScore">--</div>
+            <div class="detail-stat-label">Min Score</div>
+          </div>
+          <div class="detail-stat">
+            <div class="detail-stat-value" id="detailMaxScore">--</div>
+            <div class="detail-stat-label">Max Score</div>
+          </div>
+          <div class="detail-stat">
+            <div class="detail-stat-value" id="detailFrames">--</div>
+            <div class="detail-stat-label">Frames</div>
+          </div>
+        </div>
+        <div class="detail-chart">
+          <div class="detail-chart-title">Score Over Time</div>
+          <canvas id="detailScoreChart"></canvas>
+        </div>
+        <div class="detail-issues" id="detailIssuesSection">
+          <div class="detail-issues-title">Joint Issues</div>
+          <div id="detailIssuesList"></div>
+        </div>
+        <div class="detail-tips" id="detailTipsSection">
+          <div class="detail-tips-title">Coaching Tips</div>
+          <div id="detailTipsList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+    Auth.guard();
+    const user = Auth.getUser();
+    document.getElementById('navUser').textContent = user.username;
+
+    let reports = [];
+
+    async function loadReports() {
+      try {
+        const res = await Auth.apiFetch('/api/reports');
+        if (!res.ok) throw new Error();
+        reports = await res.json();
+        renderReports();
+        renderSummary();
+      } catch (err) {
+        console.error('Failed to load reports:', err);
+      }
+    }
+
+    function renderSummary() {
+      if (reports.length === 0) {
+        document.getElementById('summaryStats').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('summaryStats').style.display = 'grid';
+      document.getElementById('totalSessions').textContent = reports.length;
+
+      const avgScoreVal = reports.reduce((sum, r) => sum + (r.avg_score || 0), 0) / reports.length;
+      document.getElementById('avgScore').textContent = Math.round(avgScoreVal);
+
+      // Total time
+      const totalSeconds = reports.reduce((sum, r) => sum + r.duration_seconds, 0);
+      document.getElementById('totalTime').textContent = formatDuration(totalSeconds);
+
+      // Total reps
+      const totalReps = reports.reduce((sum, r) => sum + r.rep_count, 0);
+      document.getElementById('totalReps').textContent = totalReps;
+    }
+
+    function renderReports() {
+      const list = document.getElementById('reportList');
+
+      if (reports.length === 0) {
+        list.innerHTML = `
+          <div class="empty-state">
+            <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/>
+            </svg>
+            <p>No exercise reports yet.<br>Complete an exercise session to see your reports here.</p>
+          </div>
+        `;
+        return;
+      }
+
+      list.innerHTML = reports.map(r => {
+        const sc = Math.round(r.avg_score || 0);
+        const tier = sc >= 80 ? 'high' : sc >= 50 ? 'medium' : 'low';
+        const topIssues = Object.entries(r.joint_issues || {}).sort((a,b) => b[1] - a[1]).slice(0, 2).map(([n]) => formatName(n)).join(', ');
+        return `
+        <div class="report-item">
+          <div class="score-badge ${tier}">${sc}</div>
+          <div class="report-info">
+            <div class="report-exercise">${r.exercise.replace(/_/g, ' ')}</div>
+            <div class="report-meta">
+              ${new Date(r.created_at).toLocaleDateString()} • ${formatDuration(r.duration_seconds)} • ${r.rep_count} reps
+              ${topIssues ? '<br>Issues: ' + topIssues : ''}
+            </div>
+          </div>
+          <div class="report-stats">
+            <div class="mini-stat">
+              <div class="mini-stat-value">${Math.round(r.avg_score)}</div>
+              <div class="mini-stat-label">Avg</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-value">${Math.round(r.min_score)}</div>
+              <div class="mini-stat-label">Min</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-stat-value">${Math.round(r.max_score)}</div>
+              <div class="mini-stat-label">Max</div>
+            </div>
+          </div>
+          <div class="report-actions">
+            <button class="btn-view" onclick="viewReport('${r.id}')">View Details</button>
+            <button class="btn-delete" onclick="deleteReport('${r.id}')">Delete</button>
+          </div>
+        </div>
+      `;
+      }).join('');
+    }
+
+    function formatDuration(seconds) {
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      const remainMins = mins % 60;
+      return `${hours}h ${remainMins}m`;
+    }
+
+    async function viewReport(reportId) {
+      const report = reports.find(r => r.id === reportId);
+      if (!report) return;
+
+      document.getElementById('detailExercise').textContent = report.exercise.replace(/_/g, ' ');
+      document.getElementById('detailDate').textContent = new Date(report.created_at).toLocaleString();
+      
+      const sc = Math.round(report.avg_score || 0);
+      const tier = sc >= 80 ? 'high' : sc >= 50 ? 'medium' : 'low';
+      const scoreCircle = document.getElementById('detailScoreCircle');
+      scoreCircle.textContent = sc;
+      scoreCircle.className = `detail-score-circle ${tier}`;
+
+      document.getElementById('detailAvgScore').textContent = Math.round(report.avg_score);
+      document.getElementById('detailDuration').textContent = formatDuration(report.duration_seconds);
+      document.getElementById('detailReps').textContent = report.rep_count;
+      document.getElementById('detailMinScore').textContent = Math.round(report.min_score);
+      document.getElementById('detailMaxScore').textContent = Math.round(report.max_score);
+      document.getElementById('detailFrames').textContent = report.total_frames;
+
+      // Render detailed joint issues with counts
+      const issuesSection = document.getElementById('detailIssuesSection');
+      const issuesList = document.getElementById('detailIssuesList');
+      issuesList.innerHTML = '';
+
+      const sortedJointIssues = Object.entries(report.joint_issues || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+
+      if (sortedJointIssues.length === 0) {
+        issuesSection.style.display = 'none';
+      } else {
+        issuesSection.style.display = 'block';
+        const totalFrames = report.total_frames || 1;
+        sortedJointIssues.forEach(([joint, count]) => {
+          const pct = Math.round((count / totalFrames) * 100);
+          const div = document.createElement('div');
+          div.className = 'issue-detail';
+          div.innerHTML = `
+            <span class="issue-detail-name">${formatName(joint)}</span>
+            <span class="issue-detail-count">Flagged in ${pct}% of frames (${count})</span>
+          `;
+          issuesList.appendChild(div);
+        });
+      }
+
+      // Render coaching tips
+      const tipsSection = document.getElementById('detailTipsSection');
+      const tipsList = document.getElementById('detailTipsList');
+      tipsList.innerHTML = '';
+
+      const feedbackSummary = report.feedback_summary || [];
+      if (feedbackSummary.length === 0) {
+        tipsSection.style.display = 'none';
+      } else {
+        tipsSection.style.display = 'block';
+        feedbackSummary.forEach(tip => {
+          const div = document.createElement('div');
+          div.className = 'tip-item';
+          div.textContent = tip;
+          tipsList.appendChild(div);
+        });
+      }
+
+      // Draw chart
+      setTimeout(() => drawDetailScoreChart(report.score_history), 100);
+
+      document.getElementById('detailModal').classList.add('visible');
+    }
+
+    function formatName(name) {
+      return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function drawDetailScoreChart(scores) {
+      const canvas = document.getElementById('detailScoreChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = 120 * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = canvas.offsetWidth;
+      const height = 120;
+      const padding = 10;
+
+      ctx.fillStyle = '#141414';
+      ctx.fillRect(0, 0, width, height);
+
+      if (!scores || scores.length < 2) return;
+
+      // Grid lines
+      ctx.strokeStyle = '#2a2a2a';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padding + (height - 2 * padding) * i / 4;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+
+      // Score line
+      const chartWidth = width - 2 * padding;
+      const chartHeight = height - 2 * padding;
+
+      ctx.beginPath();
+      ctx.strokeStyle = '#2dd4bf';
+      ctx.lineWidth = 2;
+
+      scores.forEach((score, i) => {
+        const x = padding + (i / (scores.length - 1)) * chartWidth;
+        const y = padding + chartHeight - (score / 100) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Gradient fill
+      const gradient = ctx.createLinearGradient(0, padding, 0, height - padding);
+      gradient.addColorStop(0, 'rgba(45, 212, 191, 0.3)');
+      gradient.addColorStop(1, 'rgba(45, 212, 191, 0)');
+
+      ctx.fillStyle = gradient;
+      ctx.lineTo(padding + chartWidth, height - padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    async function deleteReport(reportId) {
+      if (!confirm('Delete this report? This cannot be undone.')) return;
+
+      try {
+        const res = await Auth.apiFetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || 'Failed to delete report');
+          return;
+        }
+        reports = reports.filter(r => r.id !== reportId);
+        renderReports();
+        renderSummary();
+      } catch (err) {
+        alert('Failed to delete report');
+      }
+    }
+
+    // Modal close handlers
+    document.getElementById('detailCloseBtn').addEventListener('click', () => {
+      document.getElementById('detailModal').classList.remove('visible');
+    });
+
+    document.getElementById('detailModal').addEventListener('click', (e) => {
+      if (e.target.id === 'detailModal') {
+        document.getElementById('detailModal').classList.remove('visible');
+      }
+    });
+
+    loadReports();
+  </script>
+</body>
+</html>

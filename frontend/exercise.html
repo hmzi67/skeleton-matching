@@ -52,6 +52,51 @@
     .cam-btn.stop:hover { background: linear-gradient(135deg, #f87171 0%, #ef4444 100%); }
     .cam-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+    .voice-toggle {
+      background: none;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 8px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #9ca3af;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .voice-toggle:hover { border-color: #3a3a3a; color: #d4d4d4; }
+    .voice-toggle.active { border-color: #0d9488; color: #2dd4bf; background: rgba(45, 212, 191, 0.08); }
+    .voice-toggle svg { width: 16px; height: 16px; }
+
+    .speed-strip {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      display: flex;
+      gap: 4px;
+      background: rgba(15, 15, 15, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .speed-btn {
+      background: none;
+      border: none;
+      color: #6b7280;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .speed-btn:hover { color: #d4d4d4; }
+    .speed-btn.active { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; }
+
     /* Calibration Overlay */
     .calibration-overlay {
       position: absolute;
@@ -118,6 +163,9 @@
 
     .phase-chip { border-color: #0d9488; color: #5eead4; background: rgba(45, 212, 191, 0.1); }
     .rep-chip { border-color: #16a34a; color: #86efac; background: rgba(34, 197, 94, 0.1); }
+    .sync-chip { border-color: #2563eb; color: #93c5fd; background: rgba(59, 130, 246, 0.1); }
+    .sync-chip.behind { border-color: #d97706; color: #fcd34d; background: rgba(245, 158, 11, 0.1); }
+    .sync-chip.far-behind { border-color: #dc2626; color: #fca5a5; background: rgba(239, 68, 68, 0.1); }
 
     .split { flex: 1; display: grid; grid-template-columns: 1fr auto 1fr; min-height: 0; }
 
@@ -174,6 +222,7 @@
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
     .panel video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #liveVideo, #liveCanvas { transform: scaleX(-1); }
     .ref-video { pointer-events: none; }
     .overlay-canvas {
       position: absolute;
@@ -248,13 +297,7 @@
     .cam-error.visible { display: block; }
 
     .insights {
-      border-top: 1px solid #1f1f1f;
-      padding: 14px 20px;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 14px;
-      align-items: center;
-      background: #0f0f0f;
+      display: none;
     }
 
     .insight-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -263,11 +306,7 @@
 
     .feedback-row,
     .warn-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      padding: 0 20px 14px;
-      background: #0f0f0f;
+      display: none;
     }
 
     .feedback-badge {
@@ -291,12 +330,192 @@
       background: #181818; 
     }
 
+    /* Report Modal Styles */
+    .report-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .report-modal-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+    .report-modal {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 20px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+      transform: scale(0.9);
+      transition: transform 0.3s ease;
+    }
+    .report-modal-overlay.visible .report-modal {
+      transform: scale(1);
+    }
+    .report-header {
+      padding: 24px 24px 16px;
+      border-bottom: 1px solid #2a2a2a;
+      text-align: center;
+    }
+    .report-header h2 {
+      margin: 0 0 8px;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .report-header .exercise-name {
+      font-size: 1rem;
+      color: #9ca3af;
+      text-transform: capitalize;
+    }
+    .report-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      padding: 0 24px 24px;
+    }
+    .stat-card {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .report-chart {
+      padding: 0 24px 24px;
+    }
+    .report-chart-title {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 12px;
+    }
+    #reportScoreChart {
+      width: 100%;
+      height: 120px;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+    }
+    .report-issues {
+      padding: 0 24px 24px;
+    }
+    .report-issues-title {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 12px;
+    }
+    .issue-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .issue-badge {
+      font-size: 0.78rem;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid;
+    }
+    .issue-badge.joint { border-color: rgba(251, 191, 36, 0.4); color: #fde68a; background: rgba(251, 191, 36, 0.1); }
+    .issue-badge.bone { border-color: rgba(239, 68, 68, 0.4); color: #fecaca; background: rgba(239, 68, 68, 0.1); }
+    .issue-detail {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+    .issue-detail-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fde68a;
+      text-transform: capitalize;
+    }
+    .issue-detail-count {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+    .coaching-tips {
+      padding: 0 24px 24px;
+    }
+    .coaching-tips-title {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 12px;
+    }
+    .tip-item {
+      font-size: 0.82rem;
+      color: #d4d4d4;
+      padding: 8px 14px;
+      background: rgba(45, 212, 191, 0.06);
+      border-left: 3px solid #14b8a6;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 6px;
+    }
+    .report-actions {
+      display: flex;
+      gap: 12px;
+      padding: 24px;
+      border-top: 1px solid #2a2a2a;
+    }
+    .report-btn {
+      flex: 1;
+      padding: 14px 24px;
+      border-radius: 10px;
+      border: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .report-btn.primary {
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
+    }
+    .report-btn.primary:hover {
+      background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+    }
+    .report-btn.secondary {
+      background: #2a2a2a;
+      color: #fff;
+    }
+    .report-btn.secondary:hover {
+      background: #3a3a3a;
+    }
+
     @media (max-width: 600px) {
       .split { grid-template-columns: 1fr; grid-template-rows: 1fr auto 1fr; }
       .center-gauge { flex-direction: row; padding: 8px 14px; border-left: none; border-right: none; border-top: 1px solid #1f1f1f; border-bottom: 1px solid #1f1f1f; }
       #scoreGaugeCanvas { width: 60px; height: 60px; }
       .insights { grid-template-columns: 1fr; }
       #trendCanvas { width: 100%; }
+      .report-stats { grid-template-columns: 1fr 1fr; }
     }
   </style>
 </head>
@@ -314,6 +533,13 @@
     </div>
     <div style="display:flex;align-items:center;gap:12px">
       <span id="navUser" style="font-size:0.88rem;color:#737373"></span>
+      <button class="voice-toggle" id="voiceToggle" title="Toggle voice coaching">
+        <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path id="voiceWaves" d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
+        </svg>
+        <span id="voiceLabel">Voice</span>
+      </button>
       <button class="cam-btn start" id="camBtn">Start Camera</button>
     </div>
   </div>
@@ -348,6 +574,7 @@
       <canvas id="scoreGaugeCanvas" width="100" height="100"></canvas>
       <span class="phase-chip" id="phaseChip">Phase: READY</span>
       <span class="rep-chip" id="repChip">Reps: 0</span>
+      <span class="sync-chip phase-chip" id="syncChip" style="display:none"></span>
       <canvas id="trendCanvas" width="180" height="36"></canvas>
     </div>
 
@@ -364,6 +591,11 @@
       </div>
       <video id="refVideo" loop playsinline muted preload="auto" class="ref-video" style="display:none"></video>
       <canvas id="refCanvas" class="overlay-canvas"></canvas>
+      <div class="speed-strip" id="speedStrip">
+        <button class="speed-btn" data-speed="0.5">0.5x</button>
+        <button class="speed-btn" data-speed="0.75">0.75x</button>
+        <button class="speed-btn active" data-speed="1">1x</button>
+      </div>
     </div>
   </div>
 
@@ -375,6 +607,58 @@
   </div>
   <div class="feedback-row" id="feedbackRow"></div>
   <div class="warn-row" id="warnRow"></div>
+
+  <!-- Exercise Report Modal -->
+  <div class="report-modal-overlay" id="reportModal">
+    <div class="report-modal">
+      <div class="report-header">
+        <h2>🎉 Session Complete!</h2>
+        <div class="exercise-name" id="reportExerciseName">Exercise</div>
+      </div>
+      <div class="report-stats">
+        <div class="stat-card">
+          <div class="stat-value" id="reportAvgScore">--</div>
+          <div class="stat-label">Avg Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="reportDuration">--</div>
+          <div class="stat-label">Duration</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="reportReps">--</div>
+          <div class="stat-label">Reps</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="reportMinScore">--</div>
+          <div class="stat-label">Min Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="reportMaxScore">--</div>
+          <div class="stat-label">Max Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="reportFrames">--</div>
+          <div class="stat-label">Frames</div>
+        </div>
+      </div>
+      <div class="report-chart">
+        <div class="report-chart-title">Score Over Time</div>
+        <canvas id="reportScoreChart"></canvas>
+      </div>
+      <div class="report-issues" id="reportIssuesSection">
+        <div class="report-issues-title">Joint Issues</div>
+        <div id="reportIssuesList"></div>
+      </div>
+      <div class="coaching-tips" id="reportTipsSection">
+        <div class="coaching-tips-title">Top Coaching Tips</div>
+        <div id="reportTipsList"></div>
+      </div>
+      <div class="report-actions">
+        <button class="report-btn secondary" id="reportCloseBtn">Close</button>
+        <button class="report-btn primary" id="reportTryAgainBtn">Try Again</button>
+      </div>
+    </div>
+  </div>
 
   <!-- MediaPipe Tasks Vision for client-side pose detection -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.min.js" crossorigin="anonymous"></script>
@@ -437,11 +721,61 @@
     let animatedScore = 0;
     let gaugeAnimFrame = null;
 
+    // Voice coaching state
+    let voiceEnabled = false;
+    let lastSpokenText = '';
+    let lastSpeakTime = 0;
+    const SPEAK_THROTTLE_MS = 3000;
+
+    const voiceToggle = document.getElementById('voiceToggle');
+    const voiceLabel = document.getElementById('voiceLabel');
+    const voiceWaves = document.getElementById('voiceWaves');
+
+    voiceToggle.addEventListener('click', () => {
+      voiceEnabled = !voiceEnabled;
+      voiceToggle.classList.toggle('active', voiceEnabled);
+      voiceLabel.textContent = voiceEnabled ? 'Voice On' : 'Voice';
+      if (!voiceEnabled) window.speechSynthesis.cancel();
+    });
+
+    function speakCoaching(text) {
+      if (!voiceEnabled || !text || !window.speechSynthesis) return;
+      const now = Date.now();
+      if (text === lastSpokenText && now - lastSpeakTime < SPEAK_THROTTLE_MS) return;
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.1;
+      utter.pitch = 1.0;
+      utter.volume = 0.9;
+      window.speechSynthesis.speak(utter);
+      lastSpokenText = text;
+      lastSpeakTime = now;
+    }
+
+    // Speed control
+    document.getElementById('speedStrip').addEventListener('click', (e) => {
+      const btn = e.target.closest('.speed-btn');
+      if (!btn) return;
+      const speed = parseFloat(btn.dataset.speed);
+      refVideo.playbackRate = speed;
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+
     // Client-side pose detection for instant skeleton rendering
     let clientPoseDetector = null;
     let clientDetectionRunning = false;
     let lastLocalLandmarks = null;
     let lastBackendStatuses = { joint: {}, bone: {} };
+
+    // Session tracking for report generation
+    let sessionStartTime = null;
+    let sessionActive = false;
+    let phaseHistory = [];
+    let jointIssueTracker = {};   // {jointName: count}
+    let boneIssueTracker = {};    // {boneName: count}
+    let feedbackTracker = {};     // {feedback: count}
+    let currentRepCount = 0;
 
     // MediaPipe connections for skeleton drawing
     const POSE_CONNECTIONS = [
@@ -907,6 +1241,33 @@
       warnRow.innerHTML = warns.map(text => `<span class="feedback-badge info">${text}</span>`).join('');
     }
 
+    function updateSyncIndicator(temporal) {
+      const chip = document.getElementById('syncChip');
+      if (!temporal) { chip.style.display = 'none'; return; }
+
+      const offsetSec = Math.abs(temporal.offset_ms / 1000).toFixed(1);
+      const status = temporal.status;
+
+      chip.className = 'sync-chip phase-chip';
+      if (status === 'synced') {
+        chip.style.display = 'inline-block';
+        chip.textContent = 'In Sync';
+      } else if (status === 'behind') {
+        chip.style.display = 'inline-block';
+        chip.classList.add('behind');
+        chip.textContent = `${offsetSec}s behind`;
+      } else if (status === 'far_behind') {
+        chip.style.display = 'inline-block';
+        chip.classList.add('far-behind');
+        chip.textContent = `${offsetSec}s behind`;
+      } else if (status === 'ahead') {
+        chip.style.display = 'inline-block';
+        chip.textContent = `${offsetSec}s ahead`;
+      } else {
+        chip.style.display = 'none';
+      }
+    }
+
     function setScore(score) {
       if (typeof score !== 'number') {
         targetScore = 0;
@@ -949,7 +1310,52 @@
       
       setScore(data.match_score);
       showCoachingText(data.coaching_text || '');
+      if (data.coaching_text) speakCoaching(data.coaching_text);
       renderFeedback(data.feedback, data.phase, data.rep_count);
+      updateSyncIndicator(data.temporal);
+
+      // Track session data for report
+      if (sessionActive) {
+        // Track phase changes
+        if (data.phase) {
+          phaseHistory.push(data.phase);
+        }
+        
+        // Track rep count
+        if (data.rep_count !== undefined) {
+          currentRepCount = data.rep_count;
+        }
+        
+        // Track joint issues (joints with bad status)
+        if (data.joint_statuses) {
+          for (const [joint, status] of Object.entries(data.joint_statuses)) {
+            if (status === 'bad' || status === 'warning') {
+              jointIssueTracker[joint] = (jointIssueTracker[joint] || 0) + 1;
+            }
+          }
+        }
+        
+        // Track bone issues
+        if (data.bone_statuses) {
+          for (const [bone, status] of Object.entries(data.bone_statuses)) {
+            if (status === 'bad' || status === 'warning') {
+              boneIssueTracker[bone] = (boneIssueTracker[bone] || 0) + 1;
+            }
+          }
+        }
+        
+        // Track coaching feedback
+        if (data.coaching_text && data.coaching_text !== 'Great form!' && data.coaching_text !== 'Keep it up!' && data.coaching_text !== 'Start following the reference exercise') {
+          feedbackTracker[data.coaching_text] = (feedbackTracker[data.coaching_text] || 0) + 1;
+        }
+        if (data.feedback && data.feedback.top_joint_feedback) {
+          for (const jf of data.feedback.top_joint_feedback) {
+            if (jf && jf.instruction) {
+              feedbackTracker[jf.instruction] = (feedbackTracker[jf.instruction] || 0) + 1;
+            }
+          }
+        }
+      }
     }
 
     function processNoResult() {
@@ -957,6 +1363,7 @@
       setScore(null);
       showCoachingText('');
       renderFeedback(null, 'READY', 0);
+      updateSyncIndicator(null);
     }
 
     async function runBackendMatchHttpFallback() {
@@ -1035,6 +1442,16 @@
     function startWebSocketStream() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
+      // Start session tracking
+      sessionStartTime = Date.now();
+      sessionActive = true;
+      scoreHistory = [];
+      phaseHistory = [];
+      jointIssueTracker = {};
+      boneIssueTracker = {};
+      feedbackTracker = {};
+      currentRepCount = 0;
+
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
       const token = encodeURIComponent(Auth.getToken() || '');
       const ref = encodeURIComponent(refId || '');
@@ -1112,7 +1529,210 @@
       resetFeedbackUi();
       showCoachingText('');
       liveSmoother.reset();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+      // Generate and show report if session was active
+      if (sessionActive && scoreHistory.length > 5) {
+        generateAndShowReport();
+      }
+      sessionActive = false;
     }
+
+    // Generate report and show modal
+    async function generateAndShowReport() {
+      const durationMs = sessionStartTime ? Date.now() - sessionStartTime : 0;
+      const durationSeconds = Math.round(durationMs / 1000);
+      
+      // Calculate stats
+      const scores = scoreHistory.filter(s => typeof s === 'number');
+      const avgScore = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+      const minScore = scores.length ? Math.min(...scores) : 0;
+      const maxScore = scores.length ? Math.max(...scores) : 0;
+      
+      // Get top issues (sorted by count)
+      const topJointIssues = Object.entries(jointIssueTracker)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name]) => name);
+      const topBoneIssues = Object.entries(boneIssueTracker)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name]) => name);
+      const topFeedback = Object.entries(feedbackTracker)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([text]) => text);
+      
+      // Update modal UI
+      document.getElementById('reportExerciseName').textContent = exercise.replace(/_/g, ' ');
+      document.getElementById('reportAvgScore').textContent = Math.round(avgScore);
+      document.getElementById('reportDuration').textContent = formatDuration(durationSeconds);
+      document.getElementById('reportReps').textContent = currentRepCount;
+      document.getElementById('reportMinScore').textContent = Math.round(minScore);
+      document.getElementById('reportMaxScore').textContent = Math.round(maxScore);
+      document.getElementById('reportFrames').textContent = scores.length;
+      
+      // Render detailed joint issues
+      const issuesSection = document.getElementById('reportIssuesSection');
+      const issuesList = document.getElementById('reportIssuesList');
+      issuesList.innerHTML = '';
+
+      const sortedJointIssues = Object.entries(jointIssueTracker)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+      const totalFrames = scores.length || 1;
+      
+      if (sortedJointIssues.length === 0) {
+        issuesSection.style.display = 'none';
+      } else {
+        issuesSection.style.display = 'block';
+        sortedJointIssues.forEach(([joint, count]) => {
+          const pct = Math.round((count / totalFrames) * 100);
+          const div = document.createElement('div');
+          div.className = 'issue-detail';
+          div.innerHTML = `
+            <span class="issue-detail-name">${formatJointName(joint)}</span>
+            <span class="issue-detail-count">Flagged in ${pct}% of frames (${count})</span>
+          `;
+          issuesList.appendChild(div);
+        });
+      }
+
+      // Render coaching tips
+      const tipsSection = document.getElementById('reportTipsSection');
+      const tipsList = document.getElementById('reportTipsList');
+      tipsList.innerHTML = '';
+
+      if (topFeedback.length === 0) {
+        tipsSection.style.display = 'none';
+      } else {
+        tipsSection.style.display = 'block';
+        topFeedback.forEach(tip => {
+          const div = document.createElement('div');
+          div.className = 'tip-item';
+          div.textContent = tip;
+          tipsList.appendChild(div);
+        });
+      }
+      
+      // Render score chart
+      drawReportScoreChart(scores);
+      
+      // Show modal
+      document.getElementById('reportModal').classList.add('visible');
+      
+      // Save report to backend
+      try {
+        await Auth.apiFetch('/api/reports', {
+          method: 'POST',
+          body: JSON.stringify({
+            exercise: exercise,
+            reference_video_id: refId,
+            duration_seconds: durationSeconds,
+            score_history: scores,
+            phase_history: phaseHistory,
+            rep_count: currentRepCount,
+            joint_issues: jointIssueTracker,
+            bone_issues: boneIssueTracker,
+            feedback_summary: topFeedback
+          })
+        });
+      } catch (err) {
+        console.error('Failed to save report:', err);
+      }
+    }
+    
+    function formatDuration(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    }
+    
+    function formatJointName(name) {
+      return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+    
+    function formatBoneName(name) {
+      return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+    
+    function drawReportScoreChart(scores) {
+      const canvas = document.getElementById('reportScoreChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = 120 * dpr;
+      ctx.scale(dpr, dpr);
+      
+      const width = canvas.offsetWidth;
+      const height = 120;
+      const padding = 10;
+      
+      // Clear
+      ctx.fillStyle = '#141414';
+      ctx.fillRect(0, 0, width, height);
+      
+      if (scores.length < 2) return;
+      
+      // Draw grid lines
+      ctx.strokeStyle = '#2a2a2a';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padding + (height - 2 * padding) * i / 4;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+      
+      // Draw score line
+      const chartWidth = width - 2 * padding;
+      const chartHeight = height - 2 * padding;
+      
+      ctx.beginPath();
+      ctx.strokeStyle = '#2dd4bf';
+      ctx.lineWidth = 2;
+      
+      scores.forEach((score, i) => {
+        const x = padding + (i / (scores.length - 1)) * chartWidth;
+        const y = padding + chartHeight - (score / 100) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      
+      // Draw gradient fill
+      const gradient = ctx.createLinearGradient(0, padding, 0, height - padding);
+      gradient.addColorStop(0, 'rgba(45, 212, 191, 0.3)');
+      gradient.addColorStop(1, 'rgba(45, 212, 191, 0)');
+      
+      ctx.fillStyle = gradient;
+      ctx.lineTo(padding + chartWidth, height - padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.closePath();
+      ctx.fill();
+    }
+    
+    // Report modal button handlers
+    document.getElementById('reportCloseBtn').addEventListener('click', () => {
+      document.getElementById('reportModal').classList.remove('visible');
+    });
+    
+    document.getElementById('reportTryAgainBtn').addEventListener('click', () => {
+      document.getElementById('reportModal').classList.remove('visible');
+      // Re-start the camera
+      setTimeout(() => {
+        camBtn.click();
+      }, 300);
+    });
+    
+    // Close modal on overlay click
+    document.getElementById('reportModal').addEventListener('click', (e) => {
+      if (e.target.id === 'reportModal') {
+        document.getElementById('reportModal').classList.remove('visible');
+      }
+    });
 
     async function loadVideoMeta() {
       if (!refId) {

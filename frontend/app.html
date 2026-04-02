@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Pose Matcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+
+    .app-container {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 260px;
+      background: #fff;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      z-index: 100;
+      transition: transform 0.3s ease;
+    }
+
+    .sidebar-header {
+      padding: 24px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-icon svg {
+      width: 24px;
+      height: 24px;
+      color: #fff;
+    }
+
+    .logo-text {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .sidebar-close {
+      display: none;
+      position: absolute;
+      right: 16px;
+      top: 24px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #64748b;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 16px 12px;
+      overflow-y: auto;
+    }
+
+    .nav-section {
+      margin-bottom: 24px;
+    }
+
+    .nav-section-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+      padding: 0 12px;
+      margin-bottom: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      color: #64748b;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      margin-bottom: 4px;
+    }
+
+    .nav-item:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .nav-item.active {
+      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+    }
+
+    .nav-item svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-footer {
+      padding: 16px 12px;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .user-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 12px;
+      margin-bottom: 12px;
+    }
+
+    .user-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+    }
+
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .user-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      font-size: 0.75rem;
+      color: #64748b;
+      text-transform: capitalize;
+    }
+
+    .logout-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      color: #ef4444;
+      font-size: 0.9rem;
+      font-weight: 500;
+      background: none;
+      border: none;
+      width: 100%;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .logout-btn:hover {
+      background: #fef2f2;
+    }
+
+    /* Main Content */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .menu-toggle {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #64748b;
+      padding: 8px;
+    }
+
+    .page-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .page-subtitle {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .topbar-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .topbar-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+    }
+
+    .content-area {
+      padding: 32px;
+    }
+
+    /* Content Sections */
+    .section {
+      display: none;
+    }
+
+    .section.active {
+      display: block;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e2e8f0;
+      transition: all 0.2s ease;
+    }
+
+    .stat-card:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .stat-card.highlight {
+      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+      border-color: #a7f3d0;
+    }
+
+    .stat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stat-icon.teal { background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%); color: #0d9488; }
+    .stat-icon.purple { background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); color: #7c3aed; }
+    .stat-icon.orange { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); color: #ea580c; }
+    .stat-icon.blue { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #2563eb; }
+    .stat-icon.green { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); color: #16a34a; }
+    .stat-icon.red { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); color: #dc2626; }
+
+    .stat-change {
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+
+    .stat-change.up { background: #dcfce7; color: #16a34a; }
+    .stat-change.down { background: #fee2e2; color: #dc2626; }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    /* Charts Grid */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .chart-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e2e8f0;
+    }
+
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .chart-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .chart-subtitle {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .chart-badge {
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 6px 12px;
+      background: #f1f5f9;
+      border-radius: 8px;
+      color: #64748b;
+    }
+
+    .chart-container {
+      height: 220px;
+      position: relative;
+    }
+
+    .chart-container canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Progress Circle */
+    .progress-circle-container {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .progress-circle {
+      position: relative;
+      width: 160px;
+      height: 160px;
+    }
+
+    .progress-circle canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .progress-circle-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .progress-value {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .progress-label {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    .progress-stats {
+      flex: 1;
+    }
+
+    .progress-stat-item {
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 12px;
+      margin-bottom: 12px;
+    }
+
+    .progress-stat-label {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+
+    .progress-stat-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* Data Table */
+    .data-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e2e8f0;
+      margin-bottom: 24px;
+    }
+
+    .data-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .data-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .data-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
+      background: #f1f5f9;
+      padding: 4px;
+      border-radius: 10px;
+    }
+
+    .filter-tab {
+      padding: 8px 16px;
+      border: none;
+      background: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-tab.active {
+      background: #fff;
+      color: #0f172a;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .data-table th {
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .data-table td {
+      padding: 16px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 0.9rem;
+      color: #0f172a;
+    }
+
+    .data-table tr:hover td {
+      background: #f8fafc;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 500;
+    }
+
+    .status-badge.pending { background: #fef3c7; color: #d97706; }
+    .status-badge.approved { background: #dcfce7; color: #16a34a; }
+    .status-badge.rejected { background: #fee2e2; color: #dc2626; }
+
+    .score-badge-sm {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #fff;
+    }
+    .score-badge-sm.high { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+    .score-badge-sm.medium { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #0f0f0f; }
+    .score-badge-sm.low { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+
+    .action-btn {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .action-btn.primary {
+      background: #14b8a6;
+      color: #fff;
+    }
+
+    .action-btn.primary:hover {
+      background: #0d9488;
+    }
+
+    .action-btn.danger {
+      background: #fee2e2;
+      color: #dc2626;
+    }
+
+    .action-btn.danger:hover {
+      background: #fecaca;
+    }
+
+    .action-btn.secondary {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .action-btn.secondary:hover {
+      background: #e2e8f0;
+    }
+
+    /* Activity List */
+    .activity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .activity-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 12px;
+      transition: all 0.2s;
+    }
+
+    .activity-item:hover {
+      background: #f1f5f9;
+    }
+
+    .activity-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+
+    .activity-info {
+      flex: 1;
+    }
+
+    .activity-title {
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 2px;
+    }
+
+    .activity-meta {
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+
+    .activity-value {
+      text-align: right;
+    }
+
+    .activity-score {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .activity-label {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #64748b;
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    /* Calendar */
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+
+    .calendar-day-header {
+      text-align: center;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #64748b;
+      padding: 8px;
+    }
+
+    .calendar-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .calendar-day.current-month {
+      color: #0f172a;
+    }
+
+    .calendar-day:hover {
+      background: #f1f5f9;
+    }
+
+    .calendar-day.today {
+      border: 2px solid #14b8a6;
+      font-weight: 600;
+    }
+
+    .calendar-day.has-activity {
+      background: #ccfbf1;
+      color: #0d9488;
+      font-weight: 600;
+    }
+
+    .calendar-day.has-activity.high {
+      background: #5eead4;
+      color: #0f172a;
+    }
+
+    .calendar-day.has-activity.excellent {
+      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      color: #fff;
+    }
+
+    /* Mobile Overlay */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 99;
+    }
+
+    .sidebar-overlay.visible {
+      display: block;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .charts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .sidebar-close {
+        display: block;
+      }
+
+      .main-content {
+        margin-left: 0;
+      }
+
+      .menu-toggle {
+        display: block;
+      }
+
+      .topbar {
+        padding: 16px;
+      }
+
+      .content-area {
+        padding: 16px;
+      }
+
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .data-table {
+        display: block;
+        overflow-x: auto;
+      }
+
+      .progress-circle-container {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Overlay (Mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-icon">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <span class="logo-text">Pose Matcher</span>
+        <button class="sidebar-close" onclick="toggleSidebar()">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Main Menu</div>
+          <a class="nav-item active" data-section="overview" onclick="showSection('overview')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+            </svg>
+            Dashboard
+          </a>
+          <a class="nav-item" href="/">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Start Exercise
+          </a>
+        </div>
+
+        <div class="nav-section" id="userMenuSection">
+          <div class="nav-section-title">My Account</div>
+          <a class="nav-item" data-section="reports" onclick="showSection('reports')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            My Reports
+          </a>
+          <a class="nav-item" data-section="uploads" onclick="showSection('uploads')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            My Uploads
+          </a>
+          <a class="nav-item" data-section="profile" onclick="showSection('profile')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+            </svg>
+            My Profile
+          </a>
+          <a class="nav-item" href="/upload">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            Upload Video
+          </a>
+        </div>
+
+        <div class="nav-section" id="adminMenuSection" style="display:none">
+          <div class="nav-section-title">Administration</div>
+          <a class="nav-item" data-section="admin-videos" onclick="showSection('admin-videos')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+            Manage Videos
+          </a>
+          <a class="nav-item" data-section="admin-categories" onclick="showSection('admin-categories')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+            </svg>
+            Categories
+          </a>
+          <a class="nav-item" data-section="admin-users" onclick="showSection('admin-users')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            Users
+          </a>
+          <a class="nav-item" data-section="admin-reports" onclick="showSection('admin-reports')">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+            All Reports
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-card">
+          <div class="user-avatar" id="userAvatar">U</div>
+          <div class="user-info">
+            <div class="user-name" id="userName">Username</div>
+            <div class="user-role" id="userRole">User</div>
+          </div>
+        </div>
+        <button class="logout-btn" onclick="Auth.logout()">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+          Log Out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="menu-toggle" onclick="toggleSidebar()">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+          </button>
+          <div>
+            <h1 class="page-title" id="pageTitle">Dashboard</h1>
+            <p class="page-subtitle" id="pageSubtitle">Welcome back! Here's your progress overview.</p>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <a href="/" class="topbar-btn">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+            </svg>
+            Start Exercise
+          </a>
+        </div>
+      </header>
+
+      <div class="content-area">
+        <!-- Overview Section -->
+        <section class="section active" id="section-overview">
+          <div class="stats-grid" id="overviewStats"></div>
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Daily Progress</div>
+                  <div class="chart-subtitle">Score trend over last 30 days</div>
+                </div>
+                <span class="chart-badge">Last 30 Days</span>
+              </div>
+              <div class="chart-container">
+                <canvas id="progressChart"></canvas>
+              </div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Overall Performance</div>
+                  <div class="chart-subtitle">Your average score</div>
+                </div>
+              </div>
+              <div class="progress-circle-container">
+                <div class="progress-circle">
+                  <canvas id="performanceCircle"></canvas>
+                  <div class="progress-circle-text">
+                    <div class="progress-value" id="avgScoreValue">--</div>
+                    <div class="progress-label">Avg Score</div>
+                  </div>
+                </div>
+                <div class="progress-stats">
+                  <div class="progress-stat-item">
+                    <div class="progress-stat-label">Current Streak</div>
+                    <div class="progress-stat-value" id="currentStreakValue">0 days</div>
+                  </div>
+                  <div class="progress-stat-item">
+                    <div class="progress-stat-label">Best Score</div>
+                    <div class="progress-stat-value" id="bestScoreValue">--</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">Recent Activity</div>
+              <a href="#" onclick="showSection('reports'); return false;" style="color:#14b8a6;font-size:0.9rem;font-weight:500;text-decoration:none;">View All →</a>
+            </div>
+            <div class="activity-list" id="recentActivityList">
+              <div class="empty-state">Loading...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Reports Section -->
+        <section class="section" id="section-reports">
+          <div class="stats-grid" id="reportsStats"></div>
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">Exercise Reports</div>
+            </div>
+            <table class="data-table" id="reportsTable">
+              <thead>
+                <tr>
+                  <th>Exercise</th>
+                  <th>Score</th>
+                  <th>Duration</th>
+                  <th>Reps</th>
+                  <th>Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="reportsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Uploads Section -->
+        <section class="section" id="section-uploads">
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">My Video Uploads</div>
+              <a href="/upload" class="topbar-btn" style="padding:8px 16px;font-size:0.85rem;">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                Upload New
+              </a>
+            </div>
+            <table class="data-table" id="uploadsTable">
+              <thead>
+                <tr>
+                  <th>Video</th>
+                  <th>Exercise</th>
+                  <th>Status</th>
+                  <th>Uploaded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="uploadsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Profile Section -->
+        <section class="section" id="section-profile">
+          <div class="stats-grid">
+            <div class="stat-card highlight" style="grid-column: span 2;">
+              <div style="display:flex;align-items:center;gap:24px;">
+                <div class="user-avatar" style="width:80px;height:80px;font-size:2rem;" id="profileAvatar">U</div>
+                <div>
+                  <h2 style="margin:0 0 8px;font-size:1.5rem;color:#0f172a;" id="profileName">Username</h2>
+                  <p style="margin:0;color:#64748b;" id="profileEmail">email@example.com</p>
+                  <p style="margin:4px 0 0;color:#94a3b8;font-size:0.85rem;" id="profileMemberSince">Member since --</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Activity Calendar</div>
+                  <div class="chart-subtitle" id="calendarMonth">--</div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button class="action-btn secondary" onclick="prevMonth()">←</button>
+                  <button class="action-btn secondary" onclick="nextMonth()">→</button>
+                </div>
+              </div>
+              <div class="calendar-grid" id="calendarGrid"></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Exercise Breakdown</div>
+                  <div class="chart-subtitle">Performance by exercise type</div>
+                </div>
+              </div>
+              <div class="activity-list" id="exerciseBreakdown"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Admin: Videos Section -->
+        <section class="section" id="section-admin-videos">
+          <div class="stats-grid" id="adminVideoStats"></div>
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">Video Management</div>
+              <div class="filter-tabs" id="videoFilterTabs">
+                <button class="filter-tab active" data-filter="pending" onclick="filterVideos('pending')">Pending</button>
+                <button class="filter-tab" data-filter="approved" onclick="filterVideos('approved')">Approved</button>
+                <button class="filter-tab" data-filter="rejected" onclick="filterVideos('rejected')">Rejected</button>
+                <button class="filter-tab" data-filter="all" onclick="filterVideos('all')">All</button>
+              </div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Video</th>
+                  <th>Exercise</th>
+                  <th>Uploader</th>
+                  <th>Status</th>
+                  <th>Uploaded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminVideosTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Admin: Categories Section -->
+        <section class="section" id="section-admin-categories">
+          <div class="stats-grid" id="adminCategoryStats"></div>
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">Category Management</div>
+              <div class="filter-tabs" id="categoryFilterTabs">
+                <button class="filter-tab active" data-filter="pending" onclick="filterCategories('pending')">Pending</button>
+                <button class="filter-tab" data-filter="approved" onclick="filterCategories('approved')">Approved</button>
+                <button class="filter-tab" data-filter="rejected" onclick="filterCategories('rejected')">Rejected</button>
+              </div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Description</th>
+                  <th>Suggested By</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminCategoriesTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Admin: Users Section -->
+        <section class="section" id="section-admin-users">
+          <div class="stats-grid" id="adminUserStats"></div>
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">User Management</div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Joined</th>
+                  <th>Videos</th>
+                  <th>Reports</th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Admin: All Reports Section -->
+        <section class="section" id="section-admin-reports">
+          <div class="stats-grid" id="adminReportStats"></div>
+          <div class="data-card">
+            <div class="data-header">
+              <div class="data-title">All User Reports</div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Exercise</th>
+                  <th>Score</th>
+                  <th>Duration</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody id="adminReportsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+    Auth.guard();
+    
+    const user = Auth.getUser();
+    const isAdmin = user.role === 'admin';
+    
+    // Set user info
+    document.getElementById('userName').textContent = user.username;
+    document.getElementById('userAvatar').textContent = user.username.charAt(0).toUpperCase();
+    document.getElementById('userRole').textContent = user.role;
+    document.getElementById('profileAvatar').textContent = user.username.charAt(0).toUpperCase();
+    document.getElementById('profileName').textContent = user.username;
+
+    // Show admin menu if admin
+    if (isAdmin) {
+      document.getElementById('adminMenuSection').style.display = 'block';
+      document.getElementById('userMenuSection').style.display = 'none';
+    }
+
+    // Data storage
+    let reports = [];
+    let uploads = [];
+    let allVideos = [];
+    let allCategories = [];
+    let allUsers = [];
+    let allReports = [];
+    let currentVideoFilter = 'pending';
+    let currentCategoryFilter = 'pending';
+    let currentCalendarDate = new Date();
+
+    // Sidebar toggle
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('sidebarOverlay').classList.toggle('visible');
+    }
+
+    // Section navigation
+    function showSection(section) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      
+      document.getElementById(`section-${section}`).classList.add('active');
+      document.querySelector(`[data-section="${section}"]`)?.classList.add('active');
+
+      // Update page title
+      const titles = {
+        'overview': ['Dashboard', 'Welcome back! Here\'s your progress overview.'],
+        'reports': ['My Reports', 'View all your exercise session reports.'],
+        'uploads': ['My Uploads', 'Manage your uploaded videos.'],
+        'profile': ['My Profile', 'View your progress and statistics.'],
+        'admin-videos': ['Manage Videos', 'Review and approve video submissions.'],
+        'admin-categories': ['Categories', 'Manage exercise categories.'],
+        'admin-users': ['Users', 'View all registered users.'],
+        'admin-reports': ['All Reports', 'View reports from all users.']
+      };
+
+      if (titles[section]) {
+        document.getElementById('pageTitle').textContent = titles[section][0];
+        document.getElementById('pageSubtitle').textContent = titles[section][1];
+      }
+
+      // Load section data
+      if (section === 'reports') loadReportsSection();
+      if (section === 'uploads') loadUploadsSection();
+      if (section === 'profile') loadProfileSection();
+      if (section === 'admin-videos') loadAdminVideos();
+      if (section === 'admin-categories') loadAdminCategories();
+      if (section === 'admin-users') loadAdminUsers();
+      if (section === 'admin-reports') loadAdminReports();
+
+      // Close sidebar on mobile
+      if (window.innerWidth <= 768) {
+        toggleSidebar();
+      }
+    }
+
+    // Load initial data
+    async function loadDashboard() {
+      try {
+        // Load user profile
+        const userRes = await Auth.apiFetch('/api/me');
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          document.getElementById('profileEmail').textContent = userData.email;
+          const joinDate = new Date(userData.created_at);
+          document.getElementById('profileMemberSince').textContent = `Member since ${joinDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+        }
+
+        // Load reports
+        const reportsRes = await Auth.apiFetch('/api/reports');
+        if (reportsRes.ok) {
+          reports = await reportsRes.json();
+        }
+
+        // Load uploads
+        const uploadsRes = await Auth.apiFetch('/api/my-uploads');
+        if (uploadsRes.ok) {
+          uploads = await uploadsRes.json();
+        }
+
+        renderOverview();
+      } catch (err) {
+        console.error('Failed to load dashboard:', err);
+      }
+    }
+
+    function renderOverview() {
+      // Stats
+      const totalSessions = reports.length;
+      const avgScore = reports.length ? Math.round(reports.reduce((sum, r) => sum + r.avg_score, 0) / reports.length) : 0;
+      const totalTime = reports.reduce((sum, r) => sum + r.duration_seconds, 0);
+      const totalReps = reports.reduce((sum, r) => sum + r.rep_count, 0);
+
+      document.getElementById('overviewStats').innerHTML = `
+        <div class="stat-card highlight">
+          <div class="stat-header">
+            <div class="stat-icon teal">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">${totalSessions}</div>
+          <div class="stat-label">Total Sessions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">${avgScore}</div>
+          <div class="stat-label">Average Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon orange">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">${formatDuration(totalTime)}</div>
+          <div class="stat-label">Total Time</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue">
+              <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">${totalReps}</div>
+          <div class="stat-label">Total Reps</div>
+        </div>
+      `;
+
+      // Performance circle
+      document.getElementById('avgScoreValue').textContent = avgScore || '--';
+      drawPerformanceCircle(avgScore);
+
+      // Streak
+      const streak = calculateStreak();
+      document.getElementById('currentStreakValue').textContent = `${streak} days`;
+
+      // Best score
+      if (reports.length > 0) {
+        const bestScore = Math.round(Math.max(...reports.map(r => r.avg_score || 0)));
+        document.getElementById('bestScoreValue').textContent = bestScore;
+      }
+
+      // Progress chart
+      drawProgressChart();
+
+      // Recent activity
+      renderRecentActivity();
+    }
+
+    function calculateStreak() {
+      if (reports.length === 0) return 0;
+      
+      const activityDates = new Set();
+      reports.forEach(r => {
+        activityDates.add(new Date(r.created_at).toDateString());
+      });
+
+      let streak = 0;
+      let checkDate = new Date();
+      checkDate.setHours(0, 0, 0, 0);
+
+      if (!activityDates.has(checkDate.toDateString())) {
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      while (activityDates.has(checkDate.toDateString())) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+
+      return streak;
+    }
+
+    function drawPerformanceCircle(score) {
+      const canvas = document.getElementById('performanceCircle');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = 160 * dpr;
+      canvas.height = 160 * dpr;
+      ctx.scale(dpr, dpr);
+
+      const centerX = 80;
+      const centerY = 80;
+      const radius = 65;
+      const lineWidth = 12;
+
+      // Background circle
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+
+      // Progress arc
+      if (score > 0) {
+        const startAngle = -Math.PI / 2;
+        const endAngle = startAngle + (Math.PI * 2 * score / 100);
+
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+        ctx.strokeStyle = '#14b8a6';
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+    }
+
+    function drawProgressChart() {
+      const canvas = document.getElementById('progressChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, width, height);
+
+      // Get daily data
+      const days = 30;
+      const dailyData = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toDateString();
+        
+        const dayReports = reports.filter(r => new Date(r.created_at).toDateString() === dateStr);
+        const avgScore = dayReports.length > 0 
+          ? dayReports.reduce((sum, r) => sum + r.avg_score, 0) / dayReports.length 
+          : null;
+        
+        dailyData.push({ date, avgScore });
+      }
+
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+
+      // Grid
+      ctx.strokeStyle = '#f1f5f9';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (chartHeight * i / 4);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+      }
+
+      // Draw line
+      ctx.beginPath();
+      ctx.strokeStyle = '#14b8a6';
+      ctx.lineWidth = 3;
+      let started = false;
+
+      dailyData.forEach((day, i) => {
+        if (day.avgScore === null) return;
+        
+        const x = padding.left + (i / (days - 1)) * chartWidth;
+        const y = padding.top + chartHeight - (day.avgScore / 100) * chartHeight;
+
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+
+      // Fill under line
+      if (started) {
+        const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+        gradient.addColorStop(0, 'rgba(20, 184, 166, 0.2)');
+        gradient.addColorStop(1, 'rgba(20, 184, 166, 0)');
+        
+        ctx.lineTo(padding.left + chartWidth, height - padding.bottom);
+        ctx.lineTo(padding.left, height - padding.bottom);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+      }
+    }
+
+    function renderRecentActivity() {
+      const list = document.getElementById('recentActivityList');
+      const recent = reports.slice(0, 5);
+
+      if (recent.length === 0) {
+        list.innerHTML = '<div class="empty-state">No recent activity. Start an exercise to see your progress!</div>';
+        return;
+      }
+
+      const icons = ['🏋️', '💪', '🦵', '🤸', '🧘'];
+      
+      list.innerHTML = recent.map((r, i) => {
+        const sc = Math.round(r.avg_score || 0);
+        const tier = sc >= 80 ? 'high' : sc >= 50 ? 'medium' : 'low';
+        return `
+        <div class="activity-item">
+          <div class="score-badge-sm ${tier}">${sc}</div>
+          <div class="activity-info">
+            <div class="activity-title">${r.exercise.replace(/_/g, ' ')}</div>
+            <div class="activity-meta">${formatRelativeTime(r.created_at)} • ${r.rep_count} reps • ${formatDuration(r.duration_seconds)}</div>
+          </div>
+        </div>
+      `;
+      }).join('');
+    }
+
+    // Reports Section
+    function loadReportsSection() {
+      const stats = document.getElementById('reportsStats');
+      stats.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${reports.length}</div>
+          <div class="stat-label">Total Reports</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${reports.length ? Math.round(reports.reduce((s, r) => s + r.avg_score, 0) / reports.length) : 0}</div>
+          <div class="stat-label">Average Score</div>
+        </div>
+      `;
+
+      const tbody = document.getElementById('reportsTableBody');
+      if (reports.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No reports yet</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = reports.map(r => `
+        <tr>
+          <td style="text-transform:capitalize">${r.exercise.replace(/_/g, ' ')}</td>
+          <td>${Math.round(r.avg_score)}</td>
+          <td>${formatDuration(r.duration_seconds)}</td>
+          <td>${r.rep_count}</td>
+          <td>${new Date(r.created_at).toLocaleDateString()}</td>
+          <td>
+            <button class="action-btn danger" onclick="deleteReport('${r.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function deleteReport(id) {
+      if (!confirm('Delete this report?')) return;
+      try {
+        const res = await Auth.apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          reports = reports.filter(r => r.id !== id);
+          loadReportsSection();
+          renderOverview();
+        }
+      } catch (err) {
+        alert('Failed to delete report');
+      }
+    }
+
+    // Uploads Section
+    function loadUploadsSection() {
+      const tbody = document.getElementById('uploadsTableBody');
+      if (uploads.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No uploads yet</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = uploads.map(v => `
+        <tr>
+          <td>
+            <video src="/api/video/${v.id}" style="width:80px;height:50px;border-radius:8px;object-fit:cover;background:#f1f5f9;"></video>
+          </td>
+          <td style="text-transform:capitalize">${v.exercise.replace(/_/g, ' ')}</td>
+          <td><span class="status-badge ${v.status}">${v.status}</span></td>
+          <td>${new Date(v.uploaded_at).toLocaleDateString()}</td>
+          <td>
+            <button class="action-btn danger" onclick="deleteUpload('${v.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function deleteUpload(id) {
+      if (!confirm('Delete this video?')) return;
+      try {
+        const res = await Auth.apiFetch(`/api/videos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          uploads = uploads.filter(v => v.id !== id);
+          loadUploadsSection();
+        }
+      } catch (err) {
+        alert('Failed to delete video');
+      }
+    }
+
+    // Profile Section
+    function loadProfileSection() {
+      renderCalendar();
+      renderExerciseBreakdown();
+    }
+
+    function renderCalendar() {
+      const grid = document.getElementById('calendarGrid');
+      const year = currentCalendarDate.getFullYear();
+      const month = currentCalendarDate.getMonth();
+
+      document.getElementById('calendarMonth').textContent = 
+        currentCalendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+      const monthActivity = {};
+      reports.forEach(r => {
+        const date = new Date(r.created_at);
+        if (date.getFullYear() === year && date.getMonth() === month) {
+          const day = date.getDate();
+          if (!monthActivity[day]) monthActivity[day] = { sessions: 0, totalScore: 0 };
+          monthActivity[day].sessions++;
+          monthActivity[day].totalScore += r.avg_score;
+        }
+      });
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const today = new Date();
+
+      let html = '';
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      dayNames.forEach(day => html += `<div class="calendar-day-header">${day}</div>`);
+
+      for (let i = 0; i < firstDay; i++) html += `<div class="calendar-day"></div>`;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const isToday = year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
+        const activity = monthActivity[day];
+        
+        let classes = 'calendar-day current-month';
+        if (isToday) classes += ' today';
+        
+        if (activity) {
+          const avgScore = activity.totalScore / activity.sessions;
+          if (avgScore >= 85) classes += ' has-activity excellent';
+          else if (avgScore >= 70) classes += ' has-activity high';
+          else classes += ' has-activity';
+        }
+
+        html += `<div class="${classes}">${day}</div>`;
+      }
+
+      grid.innerHTML = html;
+    }
+
+    function prevMonth() {
+      currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+      renderCalendar();
+    }
+
+    function nextMonth() {
+      currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+      renderCalendar();
+    }
+
+    function renderExerciseBreakdown() {
+      const list = document.getElementById('exerciseBreakdown');
+      
+      if (reports.length === 0) {
+        list.innerHTML = '<div class="empty-state">No exercise data</div>';
+        return;
+      }
+
+      const stats = {};
+      reports.forEach(r => {
+        if (!stats[r.exercise]) stats[r.exercise] = { sessions: 0, totalScore: 0 };
+        stats[r.exercise].sessions++;
+        stats[r.exercise].totalScore += r.avg_score;
+      });
+
+      const sorted = Object.entries(stats).sort((a, b) => b[1].sessions - a[1].sessions);
+      const icons = ['🏋️', '💪', '🦵', '🤸', '🧘'];
+
+      list.innerHTML = sorted.map(([ex, data], i) => `
+        <div class="activity-item">
+          <div class="activity-icon" style="background:linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%);">${icons[i % icons.length]}</div>
+          <div class="activity-info">
+            <div class="activity-title">${ex.replace(/_/g, ' ')}</div>
+            <div class="activity-meta">${data.sessions} sessions</div>
+          </div>
+          <div class="activity-value">
+            <div class="activity-score">${Math.round(data.totalScore / data.sessions)}</div>
+            <div class="activity-label">avg</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Admin: Videos
+    async function loadAdminVideos() {
+      try {
+        const res = await Auth.apiFetch('/api/videos');
+        if (res.ok) allVideos = await res.json();
+        renderAdminVideos();
+      } catch (err) {
+        console.error('Failed to load videos:', err);
+      }
+    }
+
+    function filterVideos(filter) {
+      currentVideoFilter = filter;
+      document.querySelectorAll('#videoFilterTabs .filter-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.filter === filter);
+      });
+      renderAdminVideos();
+    }
+
+    function renderAdminVideos() {
+      const filtered = currentVideoFilter === 'all' 
+        ? allVideos 
+        : allVideos.filter(v => v.status === currentVideoFilter);
+
+      // Stats
+      document.getElementById('adminVideoStats').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${allVideos.filter(v => v.status === 'pending').length}</div>
+          <div class="stat-label">Pending</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allVideos.filter(v => v.status === 'approved').length}</div>
+          <div class="stat-label">Approved</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allVideos.filter(v => v.status === 'rejected').length}</div>
+          <div class="stat-label">Rejected</div>
+        </div>
+      `;
+
+      const tbody = document.getElementById('adminVideosTableBody');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No videos</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(v => `
+        <tr>
+          <td>
+            <video src="/api/video/${v.id}" style="width:80px;height:50px;border-radius:8px;object-fit:cover;background:#f1f5f9;"></video>
+          </td>
+          <td style="text-transform:capitalize">${v.exercise.replace(/_/g, ' ')}</td>
+          <td>${v.uploader}</td>
+          <td><span class="status-badge ${v.status}">${v.status}</span></td>
+          <td>${new Date(v.uploaded_at).toLocaleDateString()}</td>
+          <td>
+            ${v.status === 'pending' ? `
+              <button class="action-btn primary" onclick="approveVideo('${v.id}')">Approve</button>
+              <button class="action-btn danger" onclick="rejectVideo('${v.id}')">Reject</button>
+            ` : `
+              <button class="action-btn danger" onclick="deleteVideo('${v.id}')">Delete</button>
+            `}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function approveVideo(id) {
+      try {
+        const res = await Auth.apiFetch(`/api/approve/${id}`, { method: 'POST' });
+        if (res.ok) {
+          const video = allVideos.find(v => v.id === id);
+          if (video) video.status = 'approved';
+          renderAdminVideos();
+        }
+      } catch (err) {
+        alert('Failed to approve video');
+      }
+    }
+
+    async function rejectVideo(id) {
+      try {
+        const res = await Auth.apiFetch(`/api/reject/${id}`, { method: 'POST' });
+        if (res.ok) {
+          const video = allVideos.find(v => v.id === id);
+          if (video) video.status = 'rejected';
+          renderAdminVideos();
+        }
+      } catch (err) {
+        alert('Failed to reject video');
+      }
+    }
+
+    async function deleteVideo(id) {
+      if (!confirm('Delete this video?')) return;
+      try {
+        const res = await Auth.apiFetch(`/api/videos/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          allVideos = allVideos.filter(v => v.id !== id);
+          renderAdminVideos();
+        }
+      } catch (err) {
+        alert('Failed to delete video');
+      }
+    }
+
+    // Admin: Categories
+    async function loadAdminCategories() {
+      try {
+        const res = await Auth.apiFetch('/api/categories?all=true');
+        if (res.ok) allCategories = await res.json();
+        renderAdminCategories();
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+      }
+    }
+
+    function filterCategories(filter) {
+      currentCategoryFilter = filter;
+      document.querySelectorAll('#categoryFilterTabs .filter-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.filter === filter);
+      });
+      renderAdminCategories();
+    }
+
+    function renderAdminCategories() {
+      const filtered = allCategories.filter(c => c.status === currentCategoryFilter);
+
+      document.getElementById('adminCategoryStats').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${allCategories.filter(c => c.status === 'pending').length}</div>
+          <div class="stat-label">Pending</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allCategories.filter(c => c.status === 'approved').length}</div>
+          <div class="stat-label">Approved</div>
+        </div>
+      `;
+
+      const tbody = document.getElementById('adminCategoriesTableBody');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No categories</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(c => `
+        <tr>
+          <td><strong>${c.name}</strong></td>
+          <td>${c.description || '-'}</td>
+          <td>${c.suggested_by?.username || 'System'}</td>
+          <td><span class="status-badge ${c.status}">${c.status}</span></td>
+          <td>${new Date(c.created_at).toLocaleDateString()}</td>
+          <td>
+            ${c.status === 'pending' ? `
+              <button class="action-btn primary" onclick="approveCategory('${c.id}')">Approve</button>
+              <button class="action-btn danger" onclick="rejectCategory('${c.id}')">Reject</button>
+            ` : `
+              <button class="action-btn danger" onclick="deleteCategory('${c.id}')">Delete</button>
+            `}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function approveCategory(id) {
+      try {
+        const res = await Auth.apiFetch(`/api/categories/${id}/approve`, { method: 'POST' });
+        if (res.ok) {
+          const cat = allCategories.find(c => c.id === id);
+          if (cat) cat.status = 'approved';
+          renderAdminCategories();
+        }
+      } catch (err) {
+        alert('Failed to approve category');
+      }
+    }
+
+    async function rejectCategory(id) {
+      try {
+        const res = await Auth.apiFetch(`/api/categories/${id}/reject`, { method: 'POST' });
+        if (res.ok) {
+          const cat = allCategories.find(c => c.id === id);
+          if (cat) cat.status = 'rejected';
+          renderAdminCategories();
+        }
+      } catch (err) {
+        alert('Failed to reject category');
+      }
+    }
+
+    async function deleteCategory(id) {
+      if (!confirm('Delete this category?')) return;
+      try {
+        const res = await Auth.apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          allCategories = allCategories.filter(c => c.id !== id);
+          renderAdminCategories();
+        }
+      } catch (err) {
+        alert('Failed to delete category');
+      }
+    }
+
+    // Admin: Users
+    async function loadAdminUsers() {
+      try {
+        const res = await Auth.apiFetch('/api/users');
+        if (res.ok) allUsers = await res.json();
+        renderAdminUsers();
+      } catch (err) {
+        console.error('Failed to load users:', err);
+      }
+    }
+
+    function renderAdminUsers() {
+      document.getElementById('adminUserStats').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${allUsers.length}</div>
+          <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allUsers.filter(u => u.role === 'admin').length}</div>
+          <div class="stat-label">Admins</div>
+        </div>
+      `;
+
+      const tbody = document.getElementById('adminUsersTableBody');
+      if (allUsers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No users</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = allUsers.map(u => `
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div class="user-avatar" style="width:36px;height:36px;font-size:0.9rem;">${u.username.charAt(0).toUpperCase()}</div>
+              <strong>${u.username}</strong>
+            </div>
+          </td>
+          <td>${u.email}</td>
+          <td><span class="status-badge ${u.role === 'admin' ? 'approved' : 'pending'}">${u.role}</span></td>
+          <td>${new Date(u.created_at).toLocaleDateString()}</td>
+          <td>${u.video_count || 0}</td>
+          <td>${u.report_count || 0}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Admin: All Reports
+    async function loadAdminReports() {
+      try {
+        const res = await Auth.apiFetch('/api/reports?all=true');
+        if (res.ok) allReports = await res.json();
+        renderAdminReports();
+      } catch (err) {
+        console.error('Failed to load reports:', err);
+      }
+    }
+
+    function renderAdminReports() {
+      document.getElementById('adminReportStats').innerHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${allReports.length}</div>
+          <div class="stat-label">Total Reports</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${allReports.length ? Math.round(allReports.reduce((s, r) => s + r.avg_score, 0) / allReports.length) : 0}</div>
+          <div class="stat-label">Platform Avg Score</div>
+        </div>
+      `;
+
+      const tbody = document.getElementById('adminReportsTableBody');
+      if (allReports.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No reports</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = allReports.map(r => `
+        <tr>
+          <td>${r.user?.username || 'Unknown'}</td>
+          <td style="text-transform:capitalize">${r.exercise.replace(/_/g, ' ')}</td>
+          <td>${Math.round(r.avg_score)}</td>
+          <td>${formatDuration(r.duration_seconds)}</td>
+          <td>${new Date(r.created_at).toLocaleDateString()}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Utility functions
+    function formatDuration(seconds) {
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      return `${hours}h ${mins % 60}m`;
+    }
+
+    function formatRelativeTime(dateStr) {
+      const diff = Date.now() - new Date(dateStr);
+      const mins = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days = Math.floor(diff / 86400000);
+
+      if (mins < 1) return 'Just now';
+      if (mins < 60) return `${mins}m ago`;
+      if (hours < 24) return `${hours}h ago`;
+      if (days < 7) return `${days}d ago`;
+      return new Date(dateStr).toLocaleDateString();
+    }
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      if (reports.length > 0) {
+        drawProgressChart();
+      }
+    });
+
+    // URL routing - handle deep links
+    function handleRoute() {
+      const path = window.location.pathname;
+      const sectionMap = {
+        '/dashboard': 'overview',
+        '/reports': 'reports',
+        '/profile': 'profile',
+        '/admin': isAdmin ? 'admin-videos' : 'overview'
+      };
+      
+      const section = sectionMap[path] || 'overview';
+      showSection(section);
+    }
+
+    // Init
+    loadDashboard().then(() => {
+      handleRoute();
+    });
+  </script>
+</body>
+</html>
