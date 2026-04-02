@@ -12,8 +12,8 @@
     
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: #f8fafc;
-      color: #1e293b;
+      background: #0f0f0f;
+      color: #e5e5e5;
       min-height: 100vh;
     }
 
@@ -25,8 +25,8 @@
     /* Sidebar */
     .sidebar {
       width: 260px;
-      background: #fff;
-      border-right: 1px solid #e2e8f0;
+      background: #121212;
+      border-right: 1px solid #252525;
       display: flex;
       flex-direction: column;
       position: fixed;
@@ -39,7 +39,7 @@
 
     .sidebar-header {
       padding: 24px;
-      border-bottom: 1px solid #e2e8f0;
+      border-bottom: 1px solid #252525;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -48,7 +48,7 @@
     .logo-icon {
       width: 40px;
       height: 40px;
-      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
       border-radius: 12px;
       display: flex;
       align-items: center;
@@ -58,13 +58,13 @@
     .logo-icon svg {
       width: 24px;
       height: 24px;
-      color: #fff;
+      color: #0f0f0f;
     }
 
     .logo-text {
       font-size: 1.25rem;
       font-weight: 700;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .sidebar-close {
@@ -75,7 +75,7 @@
       background: none;
       border: none;
       cursor: pointer;
-      color: #64748b;
+      color: #737373;
     }
 
     .sidebar-nav {
@@ -93,7 +93,7 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: #94a3b8;
+      color: #737373;
       padding: 0 12px;
       margin-bottom: 8px;
     }
@@ -104,7 +104,7 @@
       gap: 12px;
       padding: 12px 16px;
       border-radius: 10px;
-      color: #64748b;
+      color: #a3a3a3;
       text-decoration: none;
       font-size: 0.9rem;
       font-weight: 500;
@@ -114,14 +114,14 @@
     }
 
     .nav-item:hover {
-      background: #f1f5f9;
-      color: #0f172a;
+      background: #1a1a1a;
+      color: #e5e5e5;
     }
 
     .nav-item.active {
-      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
-      color: #fff;
-      box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
+      box-shadow: 0 4px 16px rgba(45, 212, 191, 0.25);
     }
 
     .nav-item svg {
@@ -132,7 +132,7 @@
 
     .sidebar-footer {
       padding: 16px 12px;
-      border-top: 1px solid #e2e8f0;
+      border-top: 1px solid #252525;
     }
 
     .user-card {
@@ -140,7 +140,8 @@
       align-items: center;
       gap: 12px;
       padding: 12px;
-      background: #f8fafc;
+      background: #1a1a1a;
+      border: 1px solid #252525;
       border-radius: 12px;
       margin-bottom: 12px;
     }
@@ -149,11 +150,11 @@
       width: 40px;
       height: 40px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: #fff;
+      color: #0f0f0f;
       font-weight: 700;
       font-size: 1rem;
     }
@@ -166,7 +167,7 @@
     .user-name {
       font-weight: 600;
       font-size: 0.9rem;
-      color: #0f172a;
+      color: #e5e5e5;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -174,7 +175,7 @@
 
     .user-role {
       font-size: 0.75rem;
-      color: #64748b;
+      color: #737373;
       text-transform: capitalize;
     }
 
@@ -184,7 +185,7 @@
       gap: 12px;
       padding: 12px 16px;
       border-radius: 10px;
-      color: #ef4444;
+      color: #f87171;
       font-size: 0.9rem;
       font-weight: 500;
       background: none;
@@ -195,7 +196,7 @@
     }
 
     .logout-btn:hover {
-      background: #fef2f2;
+      background: rgba(239, 68, 68, 0.12);
     }
 
     /* Main Content */
@@ -206,8 +207,9 @@
     }
 
     .topbar {
-      background: #fff;
-      border-bottom: 1px solid #e2e8f0;
+      background: rgba(15, 15, 15, 0.95);
+      border-bottom: 1px solid #1f1f1f;
+      backdrop-filter: blur(12px);
       padding: 16px 32px;
       display: flex;
       align-items: center;
@@ -228,19 +230,19 @@
       background: none;
       border: none;
       cursor: pointer;
-      color: #64748b;
+      color: #a3a3a3;
       padding: 8px;
     }
 
     .page-title {
       font-size: 1.5rem;
       font-weight: 700;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .page-subtitle {
       font-size: 0.85rem;
-      color: #64748b;
+      color: #737373;
       margin-top: 2px;
     }
 
@@ -255,8 +257,8 @@
       align-items: center;
       gap: 8px;
       padding: 10px 20px;
-      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
-      color: #fff;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
       border: none;
       border-radius: 10px;
       font-size: 0.9rem;
@@ -268,7 +270,8 @@
 
     .topbar-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
+      background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+      box-shadow: 0 6px 22px rgba(45, 212, 191, 0.3);
     }
 
     .content-area {
@@ -293,21 +296,22 @@
     }
 
     .stat-card {
-      background: #fff;
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
       border-radius: 16px;
       padding: 24px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-      border: 1px solid #e2e8f0;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      border: 1px solid #252525;
       transition: all 0.2s ease;
     }
 
     .stat-card:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      border-color: #2dd4bf;
+      box-shadow: 0 10px 28px rgba(45, 212, 191, 0.12);
     }
 
     .stat-card.highlight {
-      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-      border-color: #a7f3d0;
+      background: linear-gradient(135deg, rgba(45, 212, 191, 0.14) 0%, rgba(20, 184, 166, 0.08) 100%);
+      border-color: rgba(45, 212, 191, 0.35);
     }
 
     .stat-header {
@@ -326,12 +330,12 @@
       justify-content: center;
     }
 
-    .stat-icon.teal { background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%); color: #0d9488; }
-    .stat-icon.purple { background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); color: #7c3aed; }
-    .stat-icon.orange { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); color: #ea580c; }
-    .stat-icon.blue { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #2563eb; }
-    .stat-icon.green { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); color: #16a34a; }
-    .stat-icon.red { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); color: #dc2626; }
+    .stat-icon.teal { background: linear-gradient(135deg, rgba(45, 212, 191, 0.2) 0%, rgba(45, 212, 191, 0.1) 100%); color: #5eead4; }
+    .stat-icon.purple { background: linear-gradient(135deg, rgba(167, 139, 250, 0.2) 0%, rgba(167, 139, 250, 0.1) 100%); color: #c4b5fd; }
+    .stat-icon.orange { background: linear-gradient(135deg, rgba(251, 191, 36, 0.2) 0%, rgba(251, 191, 36, 0.1) 100%); color: #fbbf24; }
+    .stat-icon.blue { background: linear-gradient(135deg, rgba(96, 165, 250, 0.2) 0%, rgba(96, 165, 250, 0.1) 100%); color: #93c5fd; }
+    .stat-icon.green { background: linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%); color: #4ade80; }
+    .stat-icon.red { background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.1) 100%); color: #f87171; }
 
     .stat-change {
       font-size: 0.8rem;
@@ -340,19 +344,19 @@
       border-radius: 6px;
     }
 
-    .stat-change.up { background: #dcfce7; color: #16a34a; }
-    .stat-change.down { background: #fee2e2; color: #dc2626; }
+    .stat-change.up { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+    .stat-change.down { background: rgba(239, 68, 68, 0.16); color: #f87171; }
 
     .stat-value {
       font-size: 2rem;
       font-weight: 800;
-      color: #0f172a;
+      color: #e5e5e5;
       margin-bottom: 4px;
     }
 
     .stat-label {
       font-size: 0.85rem;
-      color: #64748b;
+      color: #737373;
     }
 
     /* Charts Grid */
@@ -364,11 +368,11 @@
     }
 
     .chart-card {
-      background: #fff;
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
       border-radius: 16px;
       padding: 24px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-      border: 1px solid #e2e8f0;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      border: 1px solid #252525;
     }
 
     .chart-header {
@@ -381,12 +385,12 @@
     .chart-title {
       font-size: 1.1rem;
       font-weight: 700;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .chart-subtitle {
       font-size: 0.8rem;
-      color: #64748b;
+      color: #737373;
       margin-top: 2px;
     }
 
@@ -394,9 +398,10 @@
       font-size: 0.8rem;
       font-weight: 500;
       padding: 6px 12px;
-      background: #f1f5f9;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
       border-radius: 8px;
-      color: #64748b;
+      color: #a3a3a3;
     }
 
     .chart-container {
@@ -438,12 +443,12 @@
     .progress-value {
       font-size: 2.5rem;
       font-weight: 800;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .progress-label {
       font-size: 0.85rem;
-      color: #64748b;
+      color: #737373;
     }
 
     .progress-stats {
@@ -452,30 +457,31 @@
 
     .progress-stat-item {
       padding: 16px;
-      background: #f8fafc;
+      background: #1a1a1a;
+      border: 1px solid #252525;
       border-radius: 12px;
       margin-bottom: 12px;
     }
 
     .progress-stat-label {
       font-size: 0.75rem;
-      color: #64748b;
+      color: #737373;
       margin-bottom: 4px;
     }
 
     .progress-stat-value {
       font-size: 1.25rem;
       font-weight: 700;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     /* Data Table */
     .data-card {
-      background: #fff;
+      background: linear-gradient(145deg, #181818 0%, #121212 100%);
       border-radius: 16px;
       padding: 24px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-      border: 1px solid #e2e8f0;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      border: 1px solid #252525;
       margin-bottom: 24px;
     }
 
@@ -491,7 +497,7 @@
     .data-title {
       font-size: 1.1rem;
       font-weight: 700;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .data-actions {
@@ -502,7 +508,8 @@
     .filter-tabs {
       display: flex;
       gap: 8px;
-      background: #f1f5f9;
+      background: #1a1a1a;
+      border: 1px solid #252525;
       padding: 4px;
       border-radius: 10px;
     }
@@ -514,15 +521,15 @@
       border-radius: 8px;
       font-size: 0.85rem;
       font-weight: 500;
-      color: #64748b;
+      color: #737373;
       cursor: pointer;
       transition: all 0.2s;
     }
 
     .filter-tab.active {
-      background: #fff;
-      color: #0f172a;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      background: #252525;
+      color: #e5e5e5;
+      box-shadow: none;
     }
 
     .data-table {
@@ -537,19 +544,19 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: #64748b;
-      border-bottom: 1px solid #e2e8f0;
+      color: #737373;
+      border-bottom: 1px solid #252525;
     }
 
     .data-table td {
       padding: 16px;
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid #1f1f1f;
       font-size: 0.9rem;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .data-table tr:hover td {
-      background: #f8fafc;
+      background: #1a1a1a;
     }
 
     .status-badge {
@@ -562,9 +569,9 @@
       font-weight: 500;
     }
 
-    .status-badge.pending { background: #fef3c7; color: #d97706; }
-    .status-badge.approved { background: #dcfce7; color: #16a34a; }
-    .status-badge.rejected { background: #fee2e2; color: #dc2626; }
+    .status-badge.pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+    .status-badge.approved { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; border: 1px solid rgba(45, 212, 191, 0.3); }
+    .status-badge.rejected { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
 
     .score-badge-sm {
       display: inline-flex;
@@ -592,30 +599,321 @@
     }
 
     .action-btn.primary {
-      background: #14b8a6;
-      color: #fff;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
     }
 
     .action-btn.primary:hover {
-      background: #0d9488;
+      background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
     }
 
     .action-btn.danger {
-      background: #fee2e2;
-      color: #dc2626;
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.3);
     }
 
     .action-btn.danger:hover {
-      background: #fecaca;
+      background: rgba(239, 68, 68, 0.25);
     }
 
     .action-btn.secondary {
-      background: #f1f5f9;
-      color: #64748b;
+      background: #1a1a1a;
+      color: #a3a3a3;
+      border: 1px solid #2a2a2a;
     }
 
     .action-btn.secondary:hover {
-      background: #e2e8f0;
+      background: #252525;
+    }
+
+    /* Dashboard Upload Panel */
+    .upload-panel-sub {
+      margin-top: 6px;
+      font-size: 0.88rem;
+      color: #737373;
+      line-height: 1.5;
+    }
+
+    .upload-mode-tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #252525;
+      padding-bottom: 14px;
+    }
+
+    .upload-mode-tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border: none;
+      background: none;
+      color: #737373;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      position: relative;
+      transition: color 0.2s;
+    }
+
+    .upload-mode-tab:hover {
+      color: #e5e5e5;
+    }
+
+    .upload-mode-tab.active {
+      color: #2dd4bf;
+    }
+
+    .upload-mode-tab.active::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -14px;
+      height: 3px;
+      border-radius: 3px;
+      background: #2dd4bf;
+    }
+
+    .upload-mode-container {
+      display: none;
+    }
+
+    .upload-mode-container.active {
+      display: block;
+    }
+
+    .upload-field {
+      margin-bottom: 16px;
+    }
+
+    .upload-field label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 0.77rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #a3a3a3;
+      font-weight: 700;
+    }
+
+    .upload-select {
+      width: 100%;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 11px 14px;
+      background: #0f0f0f;
+      color: #e5e5e5;
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .upload-select:focus {
+      border-color: #2dd4bf;
+      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.12);
+    }
+
+    .upload-drop-zone {
+      border: 2px dashed #2a2a2a;
+      border-radius: 14px;
+      padding: 44px 20px;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      background: linear-gradient(145deg, #121212 0%, #0f0f0f 100%);
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .upload-drop-zone:hover,
+    .upload-drop-zone.over {
+      border-color: #2dd4bf;
+      background: rgba(45, 212, 191, 0.03);
+    }
+
+    .upload-file-input {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .upload-dz-icon {
+      width: 70px;
+      height: 70px;
+      margin: 0 auto 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(45, 212, 191, 0.2);
+      background: linear-gradient(135deg, rgba(45, 212, 191, 0.1) 0%, rgba(45, 212, 191, 0.04) 100%);
+      color: #2dd4bf;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .upload-drop-zone p {
+      margin: 0;
+      color: #737373;
+      font-size: 0.9rem;
+    }
+
+    .upload-drop-zone p span {
+      color: #2dd4bf;
+      font-weight: 700;
+    }
+
+    .upload-drop-zone .upload-file-types {
+      margin-top: 6px;
+      color: #525252;
+      font-size: 0.78rem;
+    }
+
+    .upload-preview-row {
+      display: none;
+      align-items: center;
+      gap: 14px;
+      margin-top: 16px;
+      border: 1px solid #252525;
+      border-radius: 12px;
+      padding: 14px 16px;
+      background: #121212;
+    }
+
+    .upload-preview-row.visible {
+      display: flex;
+    }
+
+    .upload-preview-row video {
+      width: 96px;
+      height: 64px;
+      object-fit: cover;
+      border-radius: 10px;
+      background: #0f0f0f;
+      flex-shrink: 0;
+    }
+
+    .upload-preview-name {
+      color: #e5e5e5;
+      font-size: 0.93rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .upload-preview-size {
+      margin-top: 4px;
+      color: #737373;
+      font-size: 0.8rem;
+    }
+
+    .upload-clear-btn {
+      border: none;
+      background: none;
+      color: #525252;
+      cursor: pointer;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+
+    .upload-clear-btn:hover {
+      color: #f87171;
+    }
+
+    .upload-progress-wrap {
+      display: none;
+      margin-top: 16px;
+    }
+
+    .upload-progress-wrap.visible {
+      display: block;
+    }
+
+    .upload-progress-bg {
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #1a1a1a;
+    }
+
+    .upload-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2dd4bf 0%, #14b8a6 100%);
+      transition: width 0.25s;
+    }
+
+    .upload-progress-label {
+      margin-top: 7px;
+      font-size: 0.8rem;
+      color: #737373;
+      text-align: right;
+    }
+
+    .upload-submit-btn {
+      width: 100%;
+      margin-top: 16px;
+      padding: 12px 18px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+    }
+
+    .upload-submit-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(45, 212, 191, 0.25);
+    }
+
+    .upload-submit-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .upload-inline-msg {
+      display: none;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+    }
+
+    .upload-inline-msg.visible {
+      display: block;
+    }
+
+    .upload-inline-msg.error {
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      background: rgba(239, 68, 68, 0.12);
+      color: #fca5a5;
+    }
+
+    .upload-inline-msg.success {
+      border: 1px solid rgba(45, 212, 191, 0.35);
+      background: rgba(45, 212, 191, 0.12);
+      color: #5eead4;
+    }
+
+    .upload-record-hint {
+      border: 1px dashed #2a2a2a;
+      border-radius: 12px;
+      padding: 18px;
+      color: #a3a3a3;
+      background: #121212;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      margin-bottom: 14px;
     }
 
     /* Activity List */
@@ -630,13 +928,14 @@
       align-items: center;
       gap: 16px;
       padding: 16px;
-      background: #f8fafc;
+      background: #1a1a1a;
+      border: 1px solid #252525;
       border-radius: 12px;
       transition: all 0.2s;
     }
 
     .activity-item:hover {
-      background: #f1f5f9;
+      background: #202020;
     }
 
     .activity-icon {
@@ -655,13 +954,13 @@
 
     .activity-title {
       font-weight: 600;
-      color: #0f172a;
+      color: #e5e5e5;
       margin-bottom: 2px;
     }
 
     .activity-meta {
       font-size: 0.8rem;
-      color: #64748b;
+      color: #737373;
     }
 
     .activity-value {
@@ -671,19 +970,19 @@
     .activity-score {
       font-size: 1.1rem;
       font-weight: 700;
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .activity-label {
       font-size: 0.75rem;
-      color: #64748b;
+      color: #737373;
     }
 
     /* Empty State */
     .empty-state {
       text-align: center;
       padding: 60px 20px;
-      color: #64748b;
+      color: #737373;
     }
 
     .empty-state svg {
@@ -704,7 +1003,7 @@
       text-align: center;
       font-size: 0.75rem;
       font-weight: 600;
-      color: #64748b;
+      color: #737373;
       padding: 8px;
     }
 
@@ -715,38 +1014,38 @@
       justify-content: center;
       border-radius: 8px;
       font-size: 0.85rem;
-      color: #94a3b8;
+      color: #525252;
       cursor: pointer;
       transition: all 0.2s;
     }
 
     .calendar-day.current-month {
-      color: #0f172a;
+      color: #e5e5e5;
     }
 
     .calendar-day:hover {
-      background: #f1f5f9;
+      background: #1a1a1a;
     }
 
     .calendar-day.today {
-      border: 2px solid #14b8a6;
+      border: 2px solid #2dd4bf;
       font-weight: 600;
     }
 
     .calendar-day.has-activity {
-      background: #ccfbf1;
-      color: #0d9488;
+      background: rgba(45, 212, 191, 0.2);
+      color: #5eead4;
       font-weight: 600;
     }
 
     .calendar-day.has-activity.high {
-      background: #5eead4;
-      color: #0f172a;
+      background: rgba(45, 212, 191, 0.35);
+      color: #d1fae5;
     }
 
     .calendar-day.has-activity.excellent {
-      background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
-      color: #fff;
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
     }
 
     /* Mobile Overlay */
@@ -775,6 +1074,20 @@
     @media (max-width: 768px) {
       .sidebar {
         transform: translateX(-100%);
+      }
+
+      .upload-mode-tabs {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .upload-mode-tab {
+        padding: 8px 10px;
+        font-size: 0.84rem;
+      }
+
+      .upload-submit-btn {
+        font-size: 0.95rem;
       }
 
       .sidebar.open {
@@ -1002,7 +1315,7 @@
           <div class="data-card">
             <div class="data-header">
               <div class="data-title">Recent Activity</div>
-              <a href="#" onclick="showSection('reports'); return false;" style="color:#14b8a6;font-size:0.9rem;font-weight:500;text-decoration:none;">View All →</a>
+              <a href="#" onclick="showSection('reports'); return false;" style="color:#2dd4bf;font-size:0.9rem;font-weight:500;text-decoration:none;">View All →</a>
             </div>
             <div class="activity-list" id="recentActivityList">
               <div class="empty-state">Loading...</div>
@@ -1036,6 +1349,85 @@
         <!-- Uploads Section -->
         <section class="section" id="section-uploads">
           <div class="data-card">
+            <div class="data-title">Upload Reference Video</div>
+            <p class="upload-panel-sub">Submit a video of your exercise form. An admin will review and approve it as a reference.</p>
+
+            <div id="dashUploadError" class="upload-inline-msg error"></div>
+            <div id="dashUploadSuccess" class="upload-inline-msg success"></div>
+
+            <div class="upload-mode-tabs">
+              <button class="upload-mode-tab active" data-mode="upload" onclick="switchDashboardUploadMode('upload')">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Upload from Storage
+              </button>
+              <button class="upload-mode-tab" data-mode="record" onclick="switchDashboardUploadMode('record')">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="1" fill="currentColor"/>
+                  <path d="M12 1v6m4.22-4.22l-4.24 4.24m0 0l-4.24-4.24M7.78 7.78l-4.24-4.24"/>
+                </svg>
+                Record Video
+              </button>
+            </div>
+
+            <div id="dashboard-upload-mode" class="upload-mode-container active">
+              <div class="upload-field">
+                <label for="dashboardUploadExercise">Exercise Type</label>
+                <select id="dashboardUploadExercise" class="upload-select">
+                  <option value="">Loading categories...</option>
+                </select>
+              </div>
+
+              <div class="upload-field">
+                <label>Video File</label>
+                <div class="upload-drop-zone" id="dashboardDropZone">
+                  <input type="file" id="dashboardFileInput" class="upload-file-input" accept="video/*" />
+                  <div class="upload-dz-icon">
+                    <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                      <circle cx="8.5" cy="8.5" r="1.5"/>
+                      <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                  </div>
+                  <p><span>Click to browse</span> or drag and drop</p>
+                  <p class="upload-file-types">MP4, MOV, AVI, MKV, WEBM</p>
+                </div>
+              </div>
+
+              <div class="upload-preview-row" id="dashboardPreviewRow">
+                <video id="dashboardPreviewVideo" muted></video>
+                <div style="flex:1;overflow:hidden">
+                  <div class="upload-preview-name" id="dashboardPreviewName"></div>
+                  <div class="upload-preview-size" id="dashboardPreviewSize"></div>
+                </div>
+                <button class="upload-clear-btn" onclick="clearDashboardUploadFile()" aria-label="Remove file">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+
+              <div class="upload-progress-wrap" id="dashboardProgressWrap">
+                <div class="upload-progress-bg"><div class="upload-progress-fill" id="dashboardProgressFill"></div></div>
+                <div class="upload-progress-label" id="dashboardProgressLabel">0%</div>
+              </div>
+
+              <button class="upload-submit-btn" id="dashboardUploadBtn" onclick="submitDashboardUpload()" disabled>Submit for Review</button>
+            </div>
+
+            <div id="dashboard-record-mode" class="upload-mode-container">
+              <div class="upload-record-hint">Recording is available in the full uploader, where camera access, trimming, and clip preview tools are optimized.</div>
+              <a href="/upload" class="topbar-btn" style="padding:10px 16px;font-size:0.86rem;display:inline-flex;">
+                Open Full Recorder
+              </a>
+            </div>
+          </div>
+
+          <div class="data-card">
             <div class="data-header">
               <div class="data-title">My Video Uploads</div>
               <a href="/upload" class="topbar-btn" style="padding:8px 16px;font-size:0.85rem;">
@@ -1067,9 +1459,9 @@
               <div style="display:flex;align-items:center;gap:24px;">
                 <div class="user-avatar" style="width:80px;height:80px;font-size:2rem;" id="profileAvatar">U</div>
                 <div>
-                  <h2 style="margin:0 0 8px;font-size:1.5rem;color:#0f172a;" id="profileName">Username</h2>
-                  <p style="margin:0;color:#64748b;" id="profileEmail">email@example.com</p>
-                  <p style="margin:4px 0 0;color:#94a3b8;font-size:0.85rem;" id="profileMemberSince">Member since --</p>
+                  <h2 style="margin:0 0 8px;font-size:1.5rem;color:#e5e5e5;" id="profileName">Username</h2>
+                  <p style="margin:0;color:#a3a3a3;" id="profileEmail">email@example.com</p>
+                  <p style="margin:4px 0 0;color:#737373;font-size:0.85rem;" id="profileMemberSince">Member since --</p>
                 </div>
               </div>
             </div>
@@ -1236,11 +1628,224 @@
     let currentVideoFilter = 'pending';
     let currentCategoryFilter = 'pending';
     let currentCalendarDate = new Date();
+    let dashboardUploadFile = null;
+    let dashboardUploadPreviewUrl = '';
+    let dashboardUploadHandlersBound = false;
+    let dashboardUploadCategoriesLoaded = false;
 
     // Sidebar toggle
     function toggleSidebar() {
       document.getElementById('sidebar').classList.toggle('open');
       document.getElementById('sidebarOverlay').classList.toggle('visible');
+    }
+
+    function switchDashboardUploadMode(mode) {
+      document.querySelectorAll('.upload-mode-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.mode === mode);
+      });
+
+      document.getElementById('dashboard-upload-mode').classList.toggle('active', mode === 'upload');
+      document.getElementById('dashboard-record-mode').classList.toggle('active', mode === 'record');
+    }
+
+    function setDashboardUploadMessage(type, text) {
+      const err = document.getElementById('dashUploadError');
+      const ok = document.getElementById('dashUploadSuccess');
+
+      err.classList.remove('visible');
+      ok.classList.remove('visible');
+
+      if (type === 'error') {
+        err.textContent = text;
+        err.classList.add('visible');
+      } else if (type === 'success') {
+        ok.textContent = text;
+        ok.classList.add('visible');
+      }
+    }
+
+    async function loadDashboardUploadCategories() {
+      const select = document.getElementById('dashboardUploadExercise');
+      if (!select || dashboardUploadCategoriesLoaded) return;
+
+      try {
+        const res = await Auth.apiFetch('/api/categories');
+        if (!res.ok) throw new Error('Failed to load categories');
+
+        const categories = await res.json();
+        select.innerHTML = '';
+
+        if (!Array.isArray(categories) || categories.length === 0) {
+          select.innerHTML = '<option value="">No categories available</option>';
+          return;
+        }
+
+        categories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = String(cat.name || '').toLowerCase().replace(/\s+/g, '_');
+          opt.textContent = cat.name;
+          select.appendChild(opt);
+        });
+
+        dashboardUploadCategoriesLoaded = true;
+      } catch (err) {
+        select.innerHTML = '<option value="">Could not load categories</option>';
+      }
+    }
+
+    function bindDashboardUploadHandlers() {
+      if (dashboardUploadHandlersBound) return;
+
+      const dropZone = document.getElementById('dashboardDropZone');
+      const fileInput = document.getElementById('dashboardFileInput');
+      if (!dropZone || !fileInput) return;
+
+      dropZone.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        dropZone.classList.add('over');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('over');
+      });
+
+      dropZone.addEventListener('drop', (event) => {
+        event.preventDefault();
+        dropZone.classList.remove('over');
+        const file = event.dataTransfer?.files?.[0];
+        if (file) setDashboardUploadFile(file);
+      });
+
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files?.[0];
+        if (file) setDashboardUploadFile(file);
+      });
+
+      dashboardUploadHandlersBound = true;
+    }
+
+    function setDashboardUploadFile(file) {
+      if (!file.type.startsWith('video/')) {
+        setDashboardUploadMessage('error', 'Please select a valid video file.');
+        return;
+      }
+
+      dashboardUploadFile = file;
+      const previewRow = document.getElementById('dashboardPreviewRow');
+      const previewVid = document.getElementById('dashboardPreviewVideo');
+      const previewName = document.getElementById('dashboardPreviewName');
+      const previewSize = document.getElementById('dashboardPreviewSize');
+      const uploadBtn = document.getElementById('dashboardUploadBtn');
+
+      if (dashboardUploadPreviewUrl) {
+        URL.revokeObjectURL(dashboardUploadPreviewUrl);
+      }
+      dashboardUploadPreviewUrl = URL.createObjectURL(file);
+
+      previewVid.src = dashboardUploadPreviewUrl;
+      previewName.textContent = file.name;
+      previewSize.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      previewRow.classList.add('visible');
+      uploadBtn.disabled = false;
+
+      setDashboardUploadMessage('none', '');
+    }
+
+    function clearDashboardUploadFile() {
+      dashboardUploadFile = null;
+
+      const fileInput = document.getElementById('dashboardFileInput');
+      const previewRow = document.getElementById('dashboardPreviewRow');
+      const previewVid = document.getElementById('dashboardPreviewVideo');
+      const uploadBtn = document.getElementById('dashboardUploadBtn');
+      const progressWrap = document.getElementById('dashboardProgressWrap');
+      const progressFill = document.getElementById('dashboardProgressFill');
+      const progressLabel = document.getElementById('dashboardProgressLabel');
+
+      if (fileInput) fileInput.value = '';
+      if (previewRow) previewRow.classList.remove('visible');
+      if (previewVid) previewVid.src = '';
+      if (uploadBtn) uploadBtn.disabled = true;
+      if (progressWrap) progressWrap.classList.remove('visible');
+      if (progressFill) progressFill.style.width = '0%';
+      if (progressLabel) progressLabel.textContent = '0%';
+
+      if (dashboardUploadPreviewUrl) {
+        URL.revokeObjectURL(dashboardUploadPreviewUrl);
+        dashboardUploadPreviewUrl = '';
+      }
+    }
+
+    async function refreshUploadsData() {
+      const uploadsRes = await Auth.apiFetch('/api/my-uploads');
+      if (uploadsRes.ok) {
+        uploads = await uploadsRes.json();
+      }
+    }
+
+    async function submitDashboardUpload() {
+      if (!dashboardUploadFile) return;
+
+      const exerciseSelect = document.getElementById('dashboardUploadExercise');
+      const exercise = exerciseSelect?.value;
+      const uploadBtn = document.getElementById('dashboardUploadBtn');
+      const progressWrap = document.getElementById('dashboardProgressWrap');
+      const progressFill = document.getElementById('dashboardProgressFill');
+      const progressLabel = document.getElementById('dashboardProgressLabel');
+
+      if (!exercise) {
+        setDashboardUploadMessage('error', 'Please select an exercise type.');
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      progressWrap.classList.add('visible');
+      setDashboardUploadMessage('none', '');
+
+      const formData = new FormData();
+      formData.append('video', dashboardUploadFile);
+      formData.append('exercise', exercise);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      xhr.setRequestHeader('Authorization', `Bearer ${Auth.getToken()}`);
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (!event.lengthComputable) return;
+        const pct = Math.round((event.loaded / event.total) * 100);
+        progressFill.style.width = `${pct}%`;
+        progressLabel.textContent = `${pct}%`;
+      });
+
+      xhr.addEventListener('load', async () => {
+        progressWrap.classList.remove('visible');
+        progressFill.style.width = '0%';
+        progressLabel.textContent = '0%';
+        uploadBtn.disabled = false;
+
+        if (xhr.status === 201) {
+          setDashboardUploadMessage('success', 'Uploaded! Waiting for admin approval.');
+          clearDashboardUploadFile();
+          await refreshUploadsData();
+          loadUploadsSection();
+          return;
+        }
+
+        try {
+          const payload = JSON.parse(xhr.responseText);
+          setDashboardUploadMessage('error', payload.error || 'Upload failed.');
+        } catch {
+          setDashboardUploadMessage('error', 'Upload failed.');
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        progressWrap.classList.remove('visible');
+        uploadBtn.disabled = false;
+        setDashboardUploadMessage('error', 'Network error while uploading.');
+      });
+
+      xhr.send(formData);
     }
 
     // Section navigation
@@ -1429,7 +2034,7 @@
       // Background circle
       ctx.beginPath();
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = '#e2e8f0';
+      ctx.strokeStyle = '#2a2a2a';
       ctx.lineWidth = lineWidth;
       ctx.stroke();
 
@@ -1440,7 +2045,7 @@
 
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, startAngle, endAngle);
-        ctx.strokeStyle = '#14b8a6';
+        ctx.strokeStyle = '#2dd4bf';
         ctx.lineWidth = lineWidth;
         ctx.lineCap = 'round';
         ctx.stroke();
@@ -1460,7 +2065,7 @@
       const height = canvas.offsetHeight;
       const padding = { top: 20, right: 20, bottom: 30, left: 40 };
 
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#121212';
       ctx.fillRect(0, 0, width, height);
 
       // Get daily data
@@ -1486,7 +2091,7 @@
       const chartHeight = height - padding.top - padding.bottom;
 
       // Grid
-      ctx.strokeStyle = '#f1f5f9';
+      ctx.strokeStyle = '#252525';
       ctx.lineWidth = 1;
       for (let i = 0; i <= 4; i++) {
         const y = padding.top + (chartHeight * i / 4);
@@ -1498,7 +2103,7 @@
 
       // Draw line
       ctx.beginPath();
-      ctx.strokeStyle = '#14b8a6';
+      ctx.strokeStyle = '#2dd4bf';
       ctx.lineWidth = 3;
       let started = false;
 
@@ -1520,8 +2125,8 @@
       // Fill under line
       if (started) {
         const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-        gradient.addColorStop(0, 'rgba(20, 184, 166, 0.2)');
-        gradient.addColorStop(1, 'rgba(20, 184, 166, 0)');
+        gradient.addColorStop(0, 'rgba(45, 212, 191, 0.25)');
+        gradient.addColorStop(1, 'rgba(45, 212, 191, 0)');
         
         ctx.lineTo(padding.left + chartWidth, height - padding.bottom);
         ctx.lineTo(padding.left, height - padding.bottom);
@@ -1606,6 +2211,9 @@
 
     // Uploads Section
     function loadUploadsSection() {
+      bindDashboardUploadHandlers();
+      loadDashboardUploadCategories();
+
       const tbody = document.getElementById('uploadsTableBody');
       if (uploads.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No uploads yet</td></tr>';
@@ -1615,7 +2223,7 @@
       tbody.innerHTML = uploads.map(v => `
         <tr>
           <td>
-            <video src="/api/video/${v.id}" style="width:80px;height:50px;border-radius:8px;object-fit:cover;background:#f1f5f9;"></video>
+            <video src="/api/video/${v.id}" style="width:80px;height:50px;border-radius:8px;object-fit:cover;background:#0f0f0f;"></video>
           </td>
           <td style="text-transform:capitalize">${v.exercise.replace(/_/g, ' ')}</td>
           <td><span class="status-badge ${v.status}">${v.status}</span></td>
@@ -1725,7 +2333,7 @@
 
       list.innerHTML = sorted.map(([ex, data], i) => `
         <div class="activity-item">
-          <div class="activity-icon" style="background:linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%);">${icons[i % icons.length]}</div>
+          <div class="activity-icon" style="background:linear-gradient(135deg, rgba(45, 212, 191, 0.2) 0%, rgba(45, 212, 191, 0.08) 100%);">${icons[i % icons.length]}</div>
           <div class="activity-info">
             <div class="activity-title">${ex.replace(/_/g, ' ')}</div>
             <div class="activity-meta">${data.sessions} sessions</div>
@@ -1787,7 +2395,7 @@
       tbody.innerHTML = filtered.map(v => `
         <tr>
           <td>
-            <video src="/api/video/${v.id}" style="width:80px;height:50px;border-radius:8px;object-fit:cover;background:#f1f5f9;"></video>
+            <video src="/api/video/${v.id}" style="width:80px;height:50px;border-radius:8px;object-fit:cover;background:#0f0f0f;"></video>
           </td>
           <td style="text-transform:capitalize">${v.exercise.replace(/_/g, ' ')}</td>
           <td>${v.uploader}</td>
