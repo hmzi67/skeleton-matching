@@ -6,7 +6,7 @@ Steps applied per frame:
 1. TRANSLATE       — centre on hip midpoint
 2. SCALE           — divide by torso length
 3. ROTATE          — align shoulder vector to X-axis (view-invariant)
-4. JOINT ANGLES    — compute 9 anatomical joint angles in degrees
+4. JOINT ANGLES    — compute 9 anatomical pose angles + up to 10 hand angles
 5. SYMMETRY RATIOS — min/max ratio for paired left/right joints
 
 After all frames are processed:
@@ -116,7 +116,7 @@ def _align_to_x_axis(landmarks: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Joint-angle definitions
+# Pose joint-angle definitions
 # ---------------------------------------------------------------------------
 
 # (joint_name, vertex_index, adjacent_index_a, adjacent_index_b)
@@ -139,9 +139,71 @@ _SYMMETRY_PAIRS = [
     ("left_shoulder", "right_shoulder"),
 ]
 
+# ---------------------------------------------------------------------------
+# Hand joint-angle definitions (MediaPipe Hands — 21 landmarks per hand)
+#
+# Index mapping:
+#   0: WRIST
+#   1: THUMB_CMC, 2: THUMB_MCP, 3: THUMB_IP, 4: THUMB_TIP
+#   5: INDEX_MCP, 6: INDEX_PIP, 7: INDEX_DIP, 8: INDEX_TIP
+#   9: MIDDLE_MCP, 10: MIDDLE_PIP, 11: MIDDLE_DIP, 12: MIDDLE_TIP
+#  13: RING_MCP,  14: RING_PIP,  15: RING_DIP,  16: RING_TIP
+#  17: PINKY_MCP, 18: PINKY_PIP, 19: PINKY_DIP, 20: PINKY_TIP
+#
+# One curl angle per finger: vertex at the PIP/IP joint captures the main
+# "bend-ness" of each finger across exercises.
+# ---------------------------------------------------------------------------
+
+# (name_suffix, vertex_idx, adj_a_idx, adj_b_idx)
+_HAND_ANGLE_DEFS: list[tuple[str, int, int, int]] = [
+    ("thumb_curl",  3, 2, 4),    # THUMB_IP:    MCP→IP→TIP
+    ("index_curl",  6, 5, 7),    # INDEX_PIP:   MCP→PIP→DIP
+    ("middle_curl", 10, 9, 11),  # MIDDLE_PIP:  MCP→PIP→DIP
+    ("ring_curl",   14, 13, 15), # RING_PIP:    MCP→PIP→DIP
+    ("pinky_curl",  18, 17, 19), # PINKY_PIP:   MCP→PIP→DIP
+]
+
+
+def _compute_hand_angles(hand_lms: list[dict], prefix: str) -> dict[str, float]:
+    """Compute finger curl angles for one hand.
+
+    Parameters
+    ----------
+    hand_lms : list[dict]
+        21 MediaPipe hand landmark dicts with ``x``, ``y``, ``z`` keys.
+    prefix : str
+        ``"left_hand"`` or ``"right_hand"``.
+
+    Returns
+    -------
+    dict[str, float]
+        e.g. ``{"left_hand_index_curl": 145.2, ...}``
+    """
+    angles: dict[str, float] = {}
+    if len(hand_lms) < 21:
+        return angles
+    for suffix, vertex, adj_a, adj_b in _HAND_ANGLE_DEFS:
+        angles[f"{prefix}_{suffix}"] = compute_angle(
+            hand_lms[adj_a], hand_lms[vertex], hand_lms[adj_b]
+        )
+    return angles
+
+
+def compute_hand_angles(hand_lms: list[dict], prefix: str) -> dict[str, float]:
+    """Public interface — compute finger curl angles for one hand.
+
+    Parameters
+    ----------
+    hand_lms : list[dict]
+        21 MediaPipe hand landmark dicts.
+    prefix : str
+        ``"left_hand"`` or ``"right_hand"``.
+    """
+    return _compute_hand_angles(hand_lms, prefix)
+
 
 def _compute_frame_angles(lms: list[dict]) -> dict[str, float]:
-    """Compute all joint angles and symmetry ratios for a single frame.
+    """Compute all pose joint angles and symmetry ratios for a single frame.
 
     Parameters
     ----------
@@ -183,6 +245,21 @@ def _compute_frame_angles(lms: list[dict]) -> dict[str, float]:
     return angles
 
 
+# Joints for velocity computation.
+_POSE_VELOCITY_JOINTS = [
+    "left_elbow", "right_elbow", "left_knee", "right_knee",
+    "left_hip", "right_hip", "left_shoulder", "right_shoulder",
+    "torso_lean",
+]
+
+_HAND_VELOCITY_JOINTS = [
+    "left_hand_thumb_curl",  "left_hand_index_curl",  "left_hand_middle_curl",
+    "left_hand_ring_curl",   "left_hand_pinky_curl",
+    "right_hand_thumb_curl", "right_hand_index_curl", "right_hand_middle_curl",
+    "right_hand_ring_curl",  "right_hand_pinky_curl",
+]
+
+
 # ---------------------------------------------------------------------------
 # Main normalisation function
 # ---------------------------------------------------------------------------
@@ -193,37 +270,33 @@ def normalize_skeleton(skeleton_data: list[dict]) -> list[dict]:
 
     The function applies these steps per frame:
 
-    1. **Translate** — shift all landmarks so the hip midpoint is at the
-       origin.
-    2. **Scale** — divide all coordinates by the torso length (hip-centre →
-       shoulder-centre distance).
-    3. **Rotate** — align the shoulder vector to the X-axis to remove
-       global facing-direction variance.
-    4. **Joint angles** — compute 9 anatomical joint angles in degrees.
+    1. **Translate** — shift all landmarks so the hip midpoint is at the origin.
+    2. **Scale** — divide all coordinates by the torso length.
+    3. **Rotate** — align the shoulder vector to the X-axis.
+    4. **Joint angles** — compute 9 pose angles + up to 10 hand angles.
     5. **Symmetry ratios** — min/max ratio for each left/right joint pair.
 
     After all frames are processed:
 
     6. **Angular velocity** — rate-of-change of each joint angle using
-       timestamp deltas.
+       timestamp deltas.  Only joints present in both the current and
+       previous frame are given a velocity value.
 
-    Frames where the computed torso length is < 0.01 are dropped (unreliable
-    pose).
+    Frames where torso length < 0.01 are dropped (unreliable pose).
 
     Parameters
     ----------
     skeleton_data : list[dict]
-        Output of ``extract_skeleton_from_video`` — each dict has
-        ``frame_index``, ``timestamp_ms``, and ``landmarks``.
+        Output of ``extract_skeleton_from_video``.
 
     Returns
     -------
     list[dict]
-        Same structure, but each frame now also contains:
+        Each frame now also contains:
 
         * ``normalized_landmarks`` — translated + scaled + rotated coordinates
-        * ``angles`` — ``dict[str, float]`` of joint angles in degrees
-        * ``velocities`` — ``dict[str, float]`` of angular velocity (°/s)
+        * ``angles``  — ``dict[str, float]`` (pose + hand angles in degrees)
+        * ``velocities`` — ``dict[str, float]`` (angular velocity in °/s)
     """
     normalised: list[dict] = []
 
@@ -274,41 +347,48 @@ def normalize_skeleton(skeleton_data: list[dict]) -> list[dict]:
         # --- 3. ROTATE (align shoulder to X-axis) --------------------------
         rotated = _align_to_x_axis(scaled)
 
-        # --- 4. JOINT ANGLES + 5. SYMMETRY RATIOS -------------------------
+        # --- 4. POSE JOINT ANGLES + 5. SYMMETRY RATIOS --------------------
         angles = _compute_frame_angles(rotated)
+
+        # --- 4b. HAND ANGLES (when available) ------------------------------
+        hand_data = frame.get("hand_landmarks") or {}
+        left_hand = hand_data.get("left")
+        right_hand = hand_data.get("right")
+        if left_hand:
+            angles.update(_compute_hand_angles(left_hand, "left_hand"))
+        if right_hand:
+            angles.update(_compute_hand_angles(right_hand, "right_hand"))
 
         normalised.append(
             {
                 "frame_index": frame["frame_index"],
                 "timestamp_ms": frame["timestamp_ms"],
-                "landmarks": frame["landmarks"],          # keep originals
+                "landmarks": frame["landmarks"],           # keep originals
+                "hand_landmarks": frame.get("hand_landmarks", {"left": None, "right": None}),
                 "normalized_landmarks": rotated,
                 "angles": angles,
             }
         )
 
     # --- 6. ANGULAR VELOCITY (post-pass) -----------------------------------
-    _joint_names_for_velocity = [
-        "left_elbow", "right_elbow", "left_knee", "right_knee",
-        "left_hip", "right_hip", "left_shoulder", "right_shoulder",
-        "torso_lean",
-    ]
+    all_velocity_joints = _POSE_VELOCITY_JOINTS + _HAND_VELOCITY_JOINTS
 
     for i, frame in enumerate(normalised):
         velocities: dict[str, float] = {}
         if i == 0:
-            # First frame: no velocity information.
-            for j in _joint_names_for_velocity:
-                velocities[j] = 0.0
+            for j in all_velocity_joints:
+                if j in frame["angles"]:
+                    velocities[j] = 0.0
         else:
             prev = normalised[i - 1]
             dt_ms = frame["timestamp_ms"] - prev["timestamp_ms"]
-            dt_s = dt_ms / 1000.0 if dt_ms > 0 else 1.0 / 30.0  # fallback 30fps
+            dt_s = dt_ms / 1000.0 if dt_ms > 0 else 1.0 / 30.0
 
-            for j in _joint_names_for_velocity:
-                curr_angle = frame["angles"].get(j, 0.0)
-                prev_angle = prev["angles"].get(j, 0.0)
-                velocities[j] = round((curr_angle - prev_angle) / dt_s, 2)
+            for j in all_velocity_joints:
+                curr_angle = frame["angles"].get(j)
+                prev_angle = prev["angles"].get(j)
+                if curr_angle is not None and prev_angle is not None:
+                    velocities[j] = round((curr_angle - prev_angle) / dt_s, 2)
 
         frame["velocities"] = velocities
 

@@ -1,9 +1,11 @@
-# 🏋️ Pose Matcher
+crea# 🏋️ Pose Matcher
 
 Compare your exercise form against a ground-truth video using MediaPipe
 skeleton analysis and Dynamic Time Warping.
 
 ## Installation
+
+Python 3.12 is required for local development and `uv sync` on macOS Intel or Apple Silicon.
 
 ```bash
 uv sync

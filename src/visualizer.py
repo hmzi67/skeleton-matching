@@ -3,6 +3,7 @@ visualizer.py — Kemtai-style visual feedback overlay.
 
 Provides:
   - draw_glowing_skeleton()    — neon skeleton with color-coded segments
+  - draw_hand_skeleton()       — neon hand overlay (21 landmarks per hand)
   - draw_score_bar()           — vertical green→red score bar with badge
   - draw_coaching_bubble()     — floating instruction bubble
   - draw_rep_bars()            — coloured rep history columns
@@ -85,6 +86,41 @@ _JOINT_NAME_TO_IDX: dict[str, int] = {
     "left_hip": 23, "right_hip": 24,
     "left_shoulder": 11, "right_shoulder": 12,
 }
+
+# ---------------------------------------------------------------------------
+# MediaPipe Hands connections (21 landmarks per hand)
+# ---------------------------------------------------------------------------
+
+# Each tuple is (start_idx, end_idx) within a 21-landmark hand list.
+HAND_CONNECTIONS: list[tuple[int, int]] = [
+    # Thumb
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    # Index
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    # Middle
+    (0, 9), (9, 10), (10, 11), (11, 12),
+    # Ring
+    (0, 13), (13, 14), (14, 15), (15, 16),
+    # Pinky
+    (0, 17), (17, 18), (18, 19), (19, 20),
+    # Palm cross-connections
+    (5, 9), (9, 13), (13, 17),
+]
+
+# Finger group → colour (BGR).
+_FINGER_COLORS: dict[int, tuple[int, int, int]] = {
+    # thumb: orange
+    1: (0, 165, 255),  2: (0, 165, 255),  3: (0, 165, 255),  4: (0, 165, 255),
+    # index: cyan
+    5: (255, 255, 0),  6: (255, 255, 0),  7: (255, 255, 0),  8: (255, 255, 0),
+    # middle: green
+    9: (0, 255, 128),  10: (0, 255, 128), 11: (0, 255, 128), 12: (0, 255, 128),
+    # ring: magenta
+    13: (255, 0, 255), 14: (255, 0, 255), 15: (255, 0, 255), 16: (255, 0, 255),
+    # pinky: yellow
+    17: (0, 255, 255), 18: (0, 255, 255), 19: (0, 255, 255), 20: (0, 255, 255),
+}
+_WRIST_COLOR: tuple[int, int, int] = (200, 200, 200)  # wrist landmark (idx=0)
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +259,56 @@ def draw_skeleton_on_frame(
 ) -> np.ndarray:
     """Draw skeleton — delegates to glowing version."""
     return draw_glowing_skeleton(frame, landmarks)
+
+
+# ---------------------------------------------------------------------------
+# Hand skeleton overlay
+# ---------------------------------------------------------------------------
+
+
+def draw_hand_skeleton(
+    frame: np.ndarray,
+    hand_landmarks: "dict[str, list[dict] | None]",
+) -> np.ndarray:
+    """Draw neon hand skeletons for both hands (when detected).
+
+    Parameters
+    ----------
+    frame : np.ndarray
+        BGR frame to annotate (modified in-place).
+    hand_landmarks : dict
+        ``{"left": [...21 dicts...] | None, "right": [...21 dicts...] | None}``
+        Each dict has ``x``, ``y`` in normalised [0, 1] coordinates.
+
+    Returns
+    -------
+    np.ndarray
+        Annotated frame.
+    """
+    h, w = frame.shape[:2]
+
+    def _px(lm: dict) -> tuple[int, int]:
+        return int(lm["x"] * w), int(lm["y"] * h)
+
+    for hand_lms in (
+        hand_landmarks.get("left"),
+        hand_landmarks.get("right"),
+    ):
+        if not hand_lms or len(hand_lms) < 21:
+            continue
+
+        # Draw connections with glow.
+        for i, j in HAND_CONNECTIONS:
+            color = _FINGER_COLORS.get(max(i, j), _WRIST_COLOR)
+            _draw_glowing_line(frame, _px(hand_lms[i]), _px(hand_lms[j]),
+                               color, thickness=2, glow_passes=2)
+
+        # Draw joints.
+        for idx, lm in enumerate(hand_lms):
+            color = _FINGER_COLORS.get(idx, _WRIST_COLOR)
+            _draw_glowing_joint(frame, _px(lm), color, radius=4)
+
+    return frame
 
 
 # ---------------------------------------------------------------------------
@@ -470,12 +556,22 @@ def create_side_by_side(
     phase: str = "",
     rep_count: int = 0,
     joint_errors: dict[str, float] | None = None,
+    user_hand_landmarks: "dict[str, list[dict] | None] | None" = None,
+    gt_hand_landmarks: "dict[str, list[dict] | None] | None" = None,
 ) -> np.ndarray:
     """Create a Kemtai-style side-by-side composite frame.
 
     User on LEFT (60%), score bar CENTER, GT on RIGHT (40%).
-    Includes: glowing skeleton, coaching bubble, rep bars, phase indicator,
-    and directional correction arrows.
+    Includes: glowing skeleton, hand overlay (when available),
+    coaching bubble, rep bars, phase indicator, and correction arrows.
+
+    Parameters
+    ----------
+    user_hand_landmarks : dict, optional
+        ``{"left": [...21 dicts...] | None, "right": [...21 dicts...] | None}``
+        When provided, the hand skeleton is drawn over the user panel.
+    gt_hand_landmarks : dict, optional
+        Same structure for the reference panel (drawn in muted tones).
     """
     target_h = 540
     user_w = int(target_h * 4 / 3)
@@ -483,49 +579,56 @@ def create_side_by_side(
     bar_gap = 30
 
     user_resized = cv2.resize(user_frame, (user_w, target_h))
-    gt_resized = cv2.resize(gt_frame, (gt_w, target_h))
+    gt_resized   = cv2.resize(gt_frame,   (gt_w,   target_h))
 
-    # Draw glowing skeleton on USER only.
+    # Draw glowing body skeleton on USER panel.
     draw_glowing_skeleton(user_resized, user_landmarks)
 
-    # Draw directional arrows on user skeleton for worst joints.
+    # Draw hand skeleton overlay on USER panel (when available).
+    if user_hand_landmarks:
+        draw_hand_skeleton(user_resized, user_hand_landmarks)
+
+    # Draw directional correction arrows on user skeleton.
     if joint_errors:
-        # Show arrows for top 2 worst joints.
         worst = sorted(joint_errors.items(), key=lambda x: abs(x[1]), reverse=True)[:2]
         for jname, diff in worst:
-            if abs(diff) > 15:  # only show for significant errors
+            if abs(diff) > 15:
                 draw_directional_arrow(user_resized, user_landmarks, jname, diff)
 
-    # Draw phase indicator on user panel.
+    # Phase indicator on user panel.
     if phase:
         draw_phase_indicator(user_resized, phase, rep_count, x=15, y=35)
+
+    # Draw hand skeleton on GT panel when available (thinner, muted).
+    if gt_hand_landmarks:
+        draw_hand_skeleton(gt_resized, gt_hand_landmarks)
 
     # Assemble canvas.
     total_w = user_w + bar_gap + gt_w
     canvas = np.zeros((target_h, total_w, 3), dtype=np.uint8)
-    canvas[:, :user_w] = user_resized
+    canvas[:, :user_w]          = user_resized
     canvas[:, user_w + bar_gap:] = gt_resized
     canvas[:, user_w:user_w + bar_gap] = (20, 20, 20)
 
-    # Score bar.
+    # Score bar in the gap strip.
     score = feedback.get("overall_score", 0)
     bar_x = user_w + bar_gap // 2
     draw_score_bar(canvas, score, bar_x, y_top=40, y_bottom=target_h - 100)
 
-    # Coaching bubble.
+    # Coaching bubble — top priority_fix or headline.
     joint_fb = feedback.get("joint_feedback", [])
     if joint_fb:
         instruction = joint_fb[0].get("instruction", "")
     elif score >= 90:
         instruction = "Awesome Job!"
     else:
-        instruction = feedback.get("headline", "")
+        instruction = feedback.get("priority_fix", feedback.get("headline", ""))
 
     bubble_x = total_w // 2
     bubble_y = target_h - 80
     draw_coaching_bubble(canvas, instruction, score, bubble_x, bubble_y)
 
-    # Bottom strip with rep bars.
+    # Bottom strip with frame-score history bars.
     strip_h = 65
     bottom = np.zeros((strip_h, total_w, 3), dtype=np.uint8)
     bottom[:] = (20, 20, 20)

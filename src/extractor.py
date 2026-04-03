@@ -1,14 +1,19 @@
 """
-extractor.py — Extract skeleton landmarks from video using MediaPipe Pose.
+extractor.py — Extract skeleton landmarks from video using MediaPipe Pose + Hands.
 
-Uses the new mediapipe.tasks API (v0.10+) with the PoseLandmarker task.
-Model file: models/pose_landmarker_heavy.task
+Uses the MediaPipe Tasks API (v0.10+) for pose detection and the MediaPipe
+Solutions API for hand landmark detection.  Both are run on every frame so
+the system captures both full-body form and fine-grained hand/finger movement.
+
+Model file: models/pose_landmarker_heavy.task  (or lite / full)
+Hand model: bundled in the mediapipe package (no separate download required)
 
 Provides:
-  - extract_skeleton_from_video()  → process a video and return per-frame dicts
-  - save_skeleton() / load_skeleton()  → JSON serialisation to avoid re-processing
-  - LANDMARK_NAMES  → mapping of MediaPipe landmark indices to human-readable names
-  - MODEL_PATH  → default path to the pose landmarker model file
+  - extract_skeleton_from_video()  → per-frame dicts with pose + hand landmarks
+  - save_skeleton() / load_skeleton()  → JSON serialisation
+  - LANDMARK_NAMES     → MediaPipe Pose landmark index → name  (33 landmarks)
+  - HAND_LANDMARK_NAMES → MediaPipe Hand landmark index → name (21 landmarks)
+  - MODEL_PATH         → default path to the pose landmarker model file
 """
 
 from __future__ import annotations
@@ -77,8 +82,23 @@ LANDMARK_NAMES: dict[int, str] = {
     32: "right_foot_index",
 }
 
-# Minimum mean visibility across all landmarks to keep a frame.
+# ---------------------------------------------------------------------------
+# MediaPipe Hand landmark index → name mapping (21 landmarks per hand)
+# ---------------------------------------------------------------------------
+HAND_LANDMARK_NAMES: dict[int, str] = {
+    0: "wrist",
+    1: "thumb_cmc",  2: "thumb_mcp",  3: "thumb_ip",   4: "thumb_tip",
+    5: "index_mcp",  6: "index_pip",  7: "index_dip",  8: "index_tip",
+    9: "middle_mcp", 10: "middle_pip", 11: "middle_dip", 12: "middle_tip",
+    13: "ring_mcp",  14: "ring_pip",  15: "ring_dip",  16: "ring_tip",
+    17: "pinky_mcp", 18: "pinky_pip", 19: "pinky_dip", 20: "pinky_tip",
+}
+
+# Minimum mean visibility across all pose landmarks to keep a frame.
 _MIN_MEAN_VISIBILITY = 0.5
+
+# MediaPipe Solutions hands module (no separate model file required).
+_mp_hands = mp.solutions.hands
 
 
 # ---------------------------------------------------------------------------
@@ -92,23 +112,27 @@ def extract_skeleton_from_video(
     model_path: str = MODEL_PATH,
     min_mean_visibility: float = _MIN_MEAN_VISIBILITY,
 ) -> list[dict]:
-    """Extract MediaPipe Pose landmarks from every frame of a video.
+    """Extract MediaPipe Pose + Hand landmarks from every frame of a video.
 
     Parameters
     ----------
     video_path:
         Path to the input video file.
     model_path:
-        Path to the ``pose_landmarker_heavy.task`` model file.
+        Path to the ``pose_landmarker_*.task`` model file.
     min_mean_visibility:
-        Frames whose mean landmark visibility is below this threshold are
-        skipped (i.e. pose was not reliably detected).
+        Frames whose mean pose landmark visibility is below this threshold
+        are skipped (unreliable pose detection).
 
     Returns
     -------
     list[dict]
-        Each dict has keys ``frame_index``, ``timestamp_ms``, and
-        ``landmarks`` (a list of 33 dicts with x/y/z/visibility).
+        Each dict has keys:
+        - ``frame_index``   — int
+        - ``timestamp_ms``  — float
+        - ``landmarks``     — list of 33 pose landmark dicts  {x, y, z, visibility}
+        - ``hand_landmarks`` — dict with ``"left"`` and ``"right"`` keys, each
+                               either a list of 21 hand landmark dicts or ``None``
     """
     video_path = str(video_path)
     cap = cv2.VideoCapture(video_path)
@@ -118,12 +142,12 @@ def extract_skeleton_from_video(
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Create PoseLandmarker with VIDEO running mode.
-    options = PoseLandmarkerOptions(
+    pose_options = PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_path),
         running_mode=RunningMode.VIDEO,
         num_poses=1,
     )
-    landmarker = PoseLandmarker.create_from_options(options)
+    pose_landmarker = PoseLandmarker.create_from_options(pose_options)
 
     skeleton_data: list[dict] = []
     frame_index = 0
@@ -137,8 +161,15 @@ def extract_skeleton_from_video(
         TimeRemainingColumn(),
     )
 
-    with progress:
-        task = progress.add_task("Extracting poses", total=total_frames)
+    # Run hand detector as a context manager alongside the pose landmarker.
+    with _mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=2,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    ) as hands_detector, progress:
+
+        task = progress.add_task("Extracting poses + hands", total=total_frames)
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -147,15 +178,15 @@ def extract_skeleton_from_video(
 
             timestamp_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
 
-            # Convert BGR → RGB and wrap in mediapipe Image.
+            # Convert BGR → RGB once; reused for both detectors.
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
-            # Detect pose.  timestamp must be monotonically increasing (ms).
-            results = landmarker.detect_for_video(mp_image, int(timestamp_ms))
+            # ---- Pose detection ----
+            pose_results = pose_landmarker.detect_for_video(mp_image, int(timestamp_ms))
 
-            if results.pose_landmarks and len(results.pose_landmarks) > 0:
-                pose = results.pose_landmarks[0]  # first (only) person
+            if pose_results.pose_landmarks and len(pose_results.pose_landmarks) > 0:
+                pose = pose_results.pose_landmarks[0]
                 landmarks_list = [
                     {
                         "x": lm.x,
@@ -166,16 +197,45 @@ def extract_skeleton_from_video(
                     for lm in pose
                 ]
 
-                mean_vis = sum(l["visibility"] for l in landmarks_list) / len(
-                    landmarks_list
-                )
+                mean_vis = sum(l["visibility"] for l in landmarks_list) / len(landmarks_list)
 
                 if mean_vis >= min_mean_visibility:
+                    # ---- Hand detection ----
+                    # The solutions API needs a writable array.
+                    frame_rgb.flags.writeable = True
+                    hand_results = hands_detector.process(frame_rgb)
+                    frame_rgb.flags.writeable = False
+
+                    hand_lms_dict: dict[str, list[dict] | None] = {
+                        "left": None,
+                        "right": None,
+                    }
+                    if (
+                        hand_results.multi_hand_landmarks
+                        and hand_results.multi_handedness
+                    ):
+                        for handedness, hand_lms in zip(
+                            hand_results.multi_handedness,
+                            hand_results.multi_hand_landmarks,
+                        ):
+                            # MediaPipe reports handedness from the camera's POV.
+                            label = handedness.classification[0].label.lower()
+                            hand_lms_dict[label] = [
+                                {
+                                    "x": lm.x,
+                                    "y": lm.y,
+                                    "z": lm.z,
+                                    "visibility": 1.0,  # hands API has no visibility
+                                }
+                                for lm in hand_lms.landmark
+                            ]
+
                     skeleton_data.append(
                         {
                             "frame_index": frame_index,
                             "timestamp_ms": round(timestamp_ms, 3),
                             "landmarks": landmarks_list,
+                            "hand_landmarks": hand_lms_dict,
                         }
                     )
                 else:
@@ -187,7 +247,7 @@ def extract_skeleton_from_video(
             progress.update(task, advance=1)
 
     cap.release()
-    landmarker.close()
+    pose_landmarker.close()
 
     progress.console.print(
         f"[green]✓[/green] Done — "
@@ -204,7 +264,7 @@ def extract_skeleton_from_video(
 
 
 def save_skeleton(skeleton_data: list[dict], output_path: str) -> None:
-    """Save skeleton data to a JSON file.
+    """Save skeleton data (pose + hand landmarks) to a JSON file.
 
     Parameters
     ----------
@@ -222,6 +282,10 @@ def save_skeleton(skeleton_data: list[dict], output_path: str) -> None:
 
 def load_skeleton(path: str) -> list[dict]:
     """Load skeleton data from a previously saved JSON file.
+
+    Backward-compatible: files saved before hand-landmark support was added
+    will have no ``hand_landmarks`` key; the rest of the pipeline handles
+    this gracefully via ``.get("hand_landmarks", {})``.
 
     Parameters
     ----------

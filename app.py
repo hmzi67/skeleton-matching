@@ -28,14 +28,13 @@ from flask import Flask, abort, jsonify, request, send_file
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 from flask_cors import CORS
-from prisma import Prisma
 from src.calibration import calibrate_from_skeleton, compute_adaptive_thresholds
 from src.exercise_weights import get_weights, compute_auto_weights, EXERCISE_WEIGHTS
 from src.extractor import extract_skeleton_from_video, load_skeleton
 from src.feedback import generate_feedback
-from src.filters import LandmarkSmoother
+from src.filters import LandmarkSmoother, HandLandmarkSmoother
 from src.matcher import match_single_frame
-from src.normalizer import normalize_skeleton
+from src.normalizer import normalize_skeleton, compute_hand_angles
 from src.state_machine import ExerciseStateMachine
 from werkzeug.utils import secure_filename
 
@@ -45,12 +44,15 @@ except ModuleNotFoundError:
     Sock = None
 
 load_dotenv()
+os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@localhost:5432/posematcher")
+
+from prisma import Prisma
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-SECRET_KEY   = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
+SECRET_KEY   = os.environ.get("SECRET_KEY", "dev-secret-change-in-production-32")
 TOKEN_EXPIRY = timedelta(hours=8)
 
 PENDING_DIR  = Path("data/pending")
@@ -130,6 +132,15 @@ _pose_detector = PoseLandmarker.create_from_options(
         running_mode=RunningMode.IMAGE,
         num_poses=1,
     )
+)
+
+# MediaPipe Hands detector for fine-grained hand/finger tracking.
+# Uses the Solutions API (no separate model file required).
+_hands_detector = mp.solutions.hands.Hands(
+    static_image_mode=False,
+    max_num_hands=2,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5,
 )
 
 
@@ -235,6 +246,9 @@ class LiveSessionState:
     landmark_smoother: LandmarkSmoother = field(
         default_factory=lambda: LandmarkSmoother(min_cutoff=2.5, beta=0.4),
     )
+    hand_smoother: HandLandmarkSmoother = field(
+        default_factory=lambda: HandLandmarkSmoother(min_cutoff=2.0, beta=0.1),
+    )
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)
@@ -252,7 +266,10 @@ _http_live_states: dict[str, LiveSessionState] = {}
 @app.before_request
 def _connect():
     if not db.is_connected():
-        db.connect()
+        try:
+            db.connect()
+        except Exception as exc:
+            abort(503, description=f"Database unavailable: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -260,17 +277,20 @@ def _connect():
 # ---------------------------------------------------------------------------
 
 def _seed_admin() -> None:
-    with Prisma() as client:
-        existing = client.user.find_first(where={"role": "admin"})
-        if not existing:
-            client.user.create(data={
-                "id":       str(uuid.uuid4()),
-                "username": "admin",
-                "email":    "admin@posematcher.local",
-                "password": bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode(),
-                "role":     "admin",
-            })
-            print("[seed] Default admin created — username: admin / password: admin123")
+    try:
+        with Prisma() as client:
+            existing = client.user.find_first(where={"role": "admin"})
+            if not existing:
+                client.user.create(data={
+                    "id":       str(uuid.uuid4()),
+                    "username": "admin",
+                    "email":    "admin@posematcher.local",
+                    "password": bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode(),
+                    "role":     "admin",
+                })
+                print("[seed] Default admin created — username: admin / password: admin123")
+    except Exception as exc:
+        print(f"[seed] Skipping admin seed: {exc}")
 
 _seed_admin()
 
@@ -324,22 +344,59 @@ def _decode_data_url_to_bgr(image_data_url: str) -> np.ndarray | None:
         return None
 
 
-def _extract_landmarks(image_bgr: np.ndarray) -> list[dict] | None:
-    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    results = _pose_detector.detect(mp_image)
-    if not results.pose_landmarks or len(results.pose_landmarks) == 0:
-        return None
+def _extract_pose_and_hands(
+    image_bgr: np.ndarray,
+) -> "tuple[list[dict] | None, dict[str, list[dict] | None]]":
+    """Detect pose + hand landmarks from a single BGR frame.
 
-    landmarks: list[dict] = []
-    for lm in results.pose_landmarks[0]:
-        landmarks.append({
-            "x": float(lm.x),
-            "y": float(lm.y),
-            "z": float(lm.z),
-            "visibility": float(lm.visibility),
-        })
-    return landmarks
+    Returns
+    -------
+    pose_landmarks : list[dict] | None
+        33 pose landmark dicts, or None when no person detected.
+    hand_landmarks : dict
+        ``{"left": [...21 dicts...] | None, "right": [...21 dicts...] | None}``
+    """
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+    # ---- Pose ----
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    pose_results = _pose_detector.detect(mp_image)
+    pose_landmarks: list[dict] | None = None
+    if pose_results.pose_landmarks and len(pose_results.pose_landmarks) > 0:
+        pose_landmarks = [
+            {
+                "x": float(lm.x),
+                "y": float(lm.y),
+                "z": float(lm.z),
+                "visibility": float(lm.visibility),
+            }
+            for lm in pose_results.pose_landmarks[0]
+        ]
+
+    # ---- Hands ----
+    rgb.flags.writeable = True
+    hand_results = _hands_detector.process(rgb)
+    rgb.flags.writeable = False
+
+    hand_lms_dict: dict[str, list[dict] | None] = {"left": None, "right": None}
+    if hand_results.multi_hand_landmarks and hand_results.multi_handedness:
+        for handedness, hand_lms in zip(
+            hand_results.multi_handedness,
+            hand_results.multi_hand_landmarks,
+        ):
+            label = handedness.classification[0].label.lower()
+            hand_lms_dict[label] = [
+                {"x": lm.x, "y": lm.y, "z": lm.z, "visibility": 1.0}
+                for lm in hand_lms.landmark
+            ]
+
+    return pose_landmarks, hand_lms_dict
+
+
+# Keep legacy name for any external callers.
+def _extract_landmarks(image_bgr: np.ndarray) -> "list[dict] | None":
+    pose_lms, _ = _extract_pose_and_hands(image_bgr)
+    return pose_lms
 
 
 def _vec(a: dict, b: dict) -> tuple[float, float, float]:
@@ -364,7 +421,11 @@ def _angle(a: dict, b: dict, c: dict) -> float:
     return math.degrees(math.acos(cosv))
 
 
-def _extract_angles(landmarks: list[dict]) -> dict[str, float]:
+def _extract_angles(
+    landmarks: list[dict],
+    hand_landmarks: "dict[str, list[dict] | None] | None" = None,
+) -> dict[str, float]:
+    """Compute all joint angles from pose (and optionally hand) landmarks."""
     angles: dict[str, float] = {}
     for name, vertex, a, c in _ANGLE_JOINTS:
         angles[name] = _angle(landmarks[a], landmarks[vertex], landmarks[c])
@@ -388,6 +449,15 @@ def _extract_angles(landmarks: list[dict]) -> dict[str, float]:
     else:
         cosv = max(-1.0, min(1.0, _dot(spine, vertical) / mag))
         angles["torso_lean"] = math.degrees(math.acos(cosv))
+
+    # Hand angles — finger curl per detected hand.
+    if hand_landmarks:
+        left_hand  = hand_landmarks.get("left")
+        right_hand = hand_landmarks.get("right")
+        if left_hand:
+            angles.update(compute_hand_angles(left_hand, "left_hand"))
+        if right_hand:
+            angles.update(compute_hand_angles(right_hand, "right_hand"))
 
     return angles
 
@@ -684,10 +754,11 @@ def _process_live_frame_message(
         return {"type": "error", "error": "invalid_live_frame"}
 
     detect_t0 = time.perf_counter()
-    raw_landmarks = _extract_landmarks(live_img)
+    raw_landmarks, raw_hand_landmarks = _extract_pose_and_hands(live_img)
     detect_ms = (time.perf_counter() - detect_t0) * 1000.0
     if not raw_landmarks:
         state.landmark_smoother.reset()
+        state.hand_smoother.reset()
         payload = {
             "type": "no_pose",
             "pose_detected": False,
@@ -718,11 +789,11 @@ def _process_live_frame_message(
             }
         return payload
 
-    live_landmarks = state.landmark_smoother.smooth(
-        time.time(), raw_landmarks,
-    )
-    live_angles = _extract_angles(live_landmarks)
-    now_ms = time.time() * 1000.0
+    t_now = time.time()
+    live_landmarks = state.landmark_smoother.smooth(t_now, raw_landmarks)
+    live_hand_landmarks = state.hand_smoother.smooth(t_now, raw_hand_landmarks)
+    live_angles = _extract_angles(live_landmarks, live_hand_landmarks)
+    now_ms = t_now * 1000.0
 
     _IDLE_ANGLE_THRESHOLD = 3.0
     _IDLE_FRAME_LIMIT = 10
@@ -788,11 +859,15 @@ def _process_live_frame_message(
         "best_joint": "",
         "frame_scores": [],
     }
-    feedback = generate_feedback(summary_stub, best_match)
     primary_angle = _primary_angle_for_exercise(
         state.exercise, live_angles, primary_joint=state.primary_joint,
     )
     phase = state.phase_machine.update(primary_angle, state.smoothed_score)
+    feedback = generate_feedback(
+        summary_stub, best_match,
+        exercise=state.exercise,
+        phase=phase,
+    )
 
     gt_frame = state.gt_norm[best_idx]
 
@@ -833,7 +908,9 @@ def _process_live_frame_message(
         "coaching_text": coaching_text,
         "connections": POSE_CONNECTIONS,
         "live_landmarks": live_landmarks,
+        "live_hand_landmarks": live_hand_landmarks,
         "ref_landmarks": display_ref_frame.get("landmarks", []),
+        "ref_hand_landmarks": display_ref_frame.get("hand_landmarks", {"left": None, "right": None}),
         "feedback": {
             "headline": feedback.get("headline", ""),
             "priority_fix": feedback.get("priority_fix", ""),

@@ -165,3 +165,67 @@ class LandmarkSmoother:
         for group in self._filters:
             for f in group:
                 f.reset()
+
+
+class HandLandmarkSmoother:
+    """Apply One Euro filtering to MediaPipe hand landmarks (21 per hand).
+
+    Maintains independent smoothers for left and right hands.  When a hand
+    disappears from the frame its smoother is reset so stale state does not
+    contaminate the next detection.
+
+    Usage::
+
+        smoother = HandLandmarkSmoother()
+        for each frame:
+            raw = {"left": [...21 dicts...] | None, "right": [...21 dicts...] | None}
+            smoothed = smoother.smooth(timestamp_sec, raw)
+    """
+
+    def __init__(
+        self,
+        min_cutoff: float = 1.5,
+        beta: float = 0.07,
+    ) -> None:
+        self._left = LandmarkSmoother(min_cutoff=min_cutoff, beta=beta, n_landmarks=21)
+        self._right = LandmarkSmoother(min_cutoff=min_cutoff, beta=beta, n_landmarks=21)
+
+    def smooth(
+        self,
+        t: float,
+        hand_landmarks: "dict[str, list[dict] | None]",
+    ) -> "dict[str, list[dict] | None]":
+        """Filter hand landmarks for both hands.
+
+        Parameters
+        ----------
+        t : float
+            Timestamp in seconds (monotonically increasing).
+        hand_landmarks : dict
+            ``{"left": [...21 dicts...] | None, "right": [...21 dicts...] | None}``
+
+        Returns
+        -------
+        dict
+            Smoothed landmarks in the same structure.
+        """
+        result: dict = {"left": None, "right": None}
+
+        left = hand_landmarks.get("left")
+        if left:
+            result["left"] = self._left.smooth(t, left)
+        else:
+            self._left.reset()
+
+        right = hand_landmarks.get("right")
+        if right:
+            result["right"] = self._right.smooth(t, right)
+        else:
+            self._right.reset()
+
+        return result
+
+    def reset(self) -> None:
+        """Reset all filters (e.g. when hands are lost)."""
+        self._left.reset()
+        self._right.reset()
