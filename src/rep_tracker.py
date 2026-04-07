@@ -156,6 +156,36 @@ class RepTracker:
             self._rep_start_ms = frame_score.timestamp_ms
         self._current_rep_frames.append(frame_score)
 
+    def _build_set_result(self, reps: list[RepResult], set_number: int) -> SetResult:
+        if reps:
+            set_accuracy = sum(r.accuracy for r in reps) / len(reps)
+        else:
+            set_accuracy = 0.0
+
+        # Aggregate joint errors across reps (mean of rep means).
+        joint_err_accum: dict[str, list[float]] = {}
+        for r in reps:
+            for j, e in r.joint_error_summary.items():
+                joint_err_accum.setdefault(j, []).append(e)
+        joint_error_means = {
+            j: sum(vs) / len(vs) for j, vs in joint_err_accum.items() if vs
+        }
+        ranking = _build_joint_problem_ranking(joint_error_means, self._weights)
+
+        return SetResult(
+            set_number=set_number,
+            reps=reps,
+            set_accuracy=round(set_accuracy, 4),
+            joint_problem_ranking=ranking,
+            grade=_grade(set_accuracy),
+        )
+
+    def current_partial_set_result(self) -> SetResult | None:
+        """Return the in-progress set using only completed reps, if any."""
+        if not self._completed_reps:
+            return None
+        return self._build_set_result(list(self._completed_reps), self.current_set_number)
+
     # ------------------------------------------------------------------
     # Rep aggregation
     # ------------------------------------------------------------------
@@ -220,30 +250,7 @@ class RepTracker:
     # ------------------------------------------------------------------
 
     def on_set_complete(self) -> SetResult:
-        reps = list(self._completed_reps)
-
-        if reps:
-            set_accuracy = sum(r.accuracy for r in reps) / len(reps)
-        else:
-            set_accuracy = 0.0
-
-        # Aggregate joint errors across reps (mean of rep means).
-        joint_err_accum: dict[str, list[float]] = {}
-        for r in reps:
-            for j, e in r.joint_error_summary.items():
-                joint_err_accum.setdefault(j, []).append(e)
-        joint_error_means = {
-            j: sum(vs) / len(vs) for j, vs in joint_err_accum.items() if vs
-        }
-        ranking = _build_joint_problem_ranking(joint_error_means, self._weights)
-
-        result = SetResult(
-            set_number=self.current_set_number,
-            reps=reps,
-            set_accuracy=round(set_accuracy, 4),
-            joint_problem_ranking=ranking,
-            grade=_grade(set_accuracy),
-        )
+        result = self._build_set_result(list(self._completed_reps), self.current_set_number)
         self._completed_sets.append(result)
 
         # Reset for next set.
@@ -258,6 +265,10 @@ class RepTracker:
 
     def finalize_session(self) -> SessionResult:
         sets = list(self._completed_sets)
+
+        partial_set = self.current_partial_set_result()
+        if partial_set is not None:
+            sets.append(partial_set)
 
         if sets:
             overall_accuracy = sum(s.set_accuracy for s in sets) / len(sets)

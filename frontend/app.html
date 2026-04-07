@@ -2204,7 +2204,11 @@
           <td>${r.rep_count}</td>
           <td>${new Date(r.created_at).toLocaleDateString()}</td>
           <td>
-            <button class="action-btn danger" onclick="deleteReport('${r.id}')">Delete</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+              <button class="action-btn secondary" onclick="openReportDetail('${r.id}')">Details</button>
+              <button class="action-btn secondary" onclick="downloadReport('${r.id}')">Download</button>
+              <button class="action-btn danger" onclick="deleteReport('${r.id}')">Delete</button>
+            </div>
           </td>
         </tr>
       `).join('');

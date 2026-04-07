@@ -676,7 +676,7 @@
     document.getElementById('navUser').textContent = user.username;
     document.title = `${exercise.replace(/_/g,' ')} — Pose Matcher`;
 
-    const CAPTURE_WIDTH = 256;
+    const CAPTURE_WIDTH = 320;
     const CAPTURE_JPEG_QUALITY = 0.6;
     const MAX_SEND_FPS = 20;
     const SEND_INTERVAL_MS = Math.round(1000 / MAX_SEND_FPS);
@@ -1794,8 +1794,8 @@
       liveSmoother.reset();
       if (window.speechSynthesis) window.speechSynthesis.cancel();
 
-      // Generate and show report if session was active
-      if (sessionActive && scoreHistory.length > 5) {
+      // Generate and show report for manual stops.
+      if (sessionActive && !sessionCompleteHandled) {
         generateAndShowReport();
       }
       sessionActive = false;

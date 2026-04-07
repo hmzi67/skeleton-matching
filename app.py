@@ -29,6 +29,8 @@ from flask import Flask, abort, jsonify, request, send_file
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 from flask_cors import CORS
+from prisma.errors import DataError
+from prisma.errors import TableNotFoundError
 from src.calibration import calibrate_from_skeleton, compute_adaptive_thresholds
 from src.exercise_weights import (
     get_weights,
@@ -256,6 +258,7 @@ class LiveSessionState:
     smoothed_score: float = 0.0
     last_live_angles: dict[str, float] | None = None
     last_live_ts_ms: float | None = None
+    no_pose_frame_count: int = 0
     idle_frame_count: int = 0
     target_reps: int | None = None
     temporal_aligner: TemporalAligner = field(default_factory=TemporalAligner)
@@ -942,6 +945,8 @@ def _process_live_frame_message(
     live_frame: str,
     ref_time_ms: float,
 ) -> dict:
+    _NO_POSE_RESET_FRAME_LIMIT = 4
+
     total_t0 = time.perf_counter()
     decode_t0 = time.perf_counter()
     live_img = _decode_data_url_to_bgr(live_frame)
@@ -953,8 +958,11 @@ def _process_live_frame_message(
     raw_landmarks, raw_hand_landmarks = _extract_pose_and_hands(live_img)
     detect_ms = (time.perf_counter() - detect_t0) * 1000.0
     if not raw_landmarks:
-        state.landmark_smoother.reset()
-        state.hand_smoother.reset()
+        state.no_pose_frame_count += 1
+        if state.no_pose_frame_count >= _NO_POSE_RESET_FRAME_LIMIT:
+            state.landmark_smoother.reset()
+            state.hand_smoother.reset()
+            state.no_pose_frame_count = _NO_POSE_RESET_FRAME_LIMIT
         payload = {
             "type": "no_pose",
             "pose_detected": False,
@@ -984,6 +992,8 @@ def _process_live_frame_message(
                 "total_ms": round((time.perf_counter() - total_t0) * 1000.0, 2),
             }
         return payload
+
+    state.no_pose_frame_count = 0
 
     t_now = time.time()
     live_landmarks = state.landmark_smoother.smooth(t_now, raw_landmarks)
@@ -2558,9 +2568,14 @@ def create_report():
     session_id_raw = data.get("session_id")
     session_id = str(session_id_raw).strip() if isinstance(session_id_raw, str) else None
     if session_id:
-        linked_session = db.exercisesession.find_unique(where={"id": session_id})
-        if not linked_session or linked_session.userId != user_id:
-            return jsonify({"error": "invalid session_id"}), 400
+        try:
+            linked_session = db.exercisesession.find_unique(where={"id": session_id})
+            if not linked_session or linked_session.userId != user_id:
+                return jsonify({"error": "invalid session_id"}), 400
+        except Exception:
+            # Older local databases may not yet have the ExerciseSession table.
+            # In that case, keep the report save working without session linkage.
+            session_id = None
     else:
         session_id = None
 
@@ -2582,28 +2597,53 @@ def create_report():
     max_score = max(scores) if scores else 0
     overall_grade = calculate_grade(avg_score)
     
-    report = db.exercisereport.create(
-        data={
-            "userId": user_id,
-            "sessionId": session_id,
-            "exercise": exercise_name,
-            "referenceVideoId": reference_video_id,
-            "durationSeconds": duration_seconds,
-            "totalFrames": len(scores),
-            "repCount": rep_count,
-            "avgScore": round(avg_score, 2),
-            "minScore": round(min_score, 2),
-            "maxScore": round(max_score, 2),
-            "scoreHistory": json.dumps(score_history),
-            "phaseHistory": json.dumps(phase_history),
-            "jointIssues": json.dumps(joint_issues),
-            "boneIssues": json.dumps(bone_issues),
-            "feedbackSummary": json.dumps(feedback_summary),
-            "repScores": json.dumps(rep_scores),
-            "repJointIssues": json.dumps(rep_joint_issues),
-            "overallGrade": overall_grade,
-        }
-    )
+    report_data = {
+        "userId": user_id,
+        "exercise": exercise_name,
+        "referenceVideoId": reference_video_id,
+        "durationSeconds": duration_seconds,
+        "totalFrames": len(scores),
+        "repCount": rep_count,
+        "avgScore": round(avg_score, 2),
+        "minScore": round(min_score, 2),
+        "maxScore": round(max_score, 2),
+        "scoreHistory": json.dumps(score_history),
+        "phaseHistory": json.dumps(phase_history),
+        "jointIssues": json.dumps(joint_issues),
+        "boneIssues": json.dumps(bone_issues),
+        "feedbackSummary": json.dumps(feedback_summary),
+        "repScores": json.dumps(rep_scores),
+        "repJointIssues": json.dumps(rep_joint_issues),
+        "overallGrade": overall_grade,
+    }
+    if session_id:
+        report_data["sessionId"] = session_id
+
+    optional_columns = {
+        "sessionId",
+        "repScores",
+        "repJointIssues",
+    }
+
+    report = None
+    for _ in range(4):
+        try:
+            report = db.exercisereport.create(data=report_data)
+            break
+        except DataError as exc:
+            message = str(exc)
+            missing_column = None
+            if "column" in message and "does not exist" in message:
+                parts = message.split("`")
+                if len(parts) >= 2:
+                    missing_column = parts[1]
+            if missing_column in optional_columns and missing_column in report_data:
+                report_data.pop(missing_column, None)
+                continue
+            raise
+
+    if report is None:
+        return jsonify({"error": "report_save_failed"}), 500
     
     return jsonify({
         "message": "Report saved",
@@ -2787,7 +2827,10 @@ def _drop_tracker(session_id: str) -> None:
 
 
 def _load_session_or_404(session_id: str):
-    sess = db.exercisesession.find_unique(where={"id": session_id})
+    try:
+        sess = db.exercisesession.find_unique(where={"id": session_id})
+    except (TableNotFoundError, DataError):
+        return None
     if not sess or sess.userId != request.user["sub"]:
         return None
     return sess
@@ -2802,12 +2845,15 @@ def session_start():
     if not exercise_name:
         return jsonify({"error": "exercise_name is required"}), 400
 
-    sess = db.exercisesession.create(data={
-        "id":           str(uuid.uuid4()),
-        "userId":       request.user["sub"],
-        "exerciseName": exercise_name,
-        "videoId":      video_id,
-    })
+    try:
+        sess = db.exercisesession.create(data={
+            "id":           str(uuid.uuid4()),
+            "userId":       request.user["sub"],
+            "exerciseName": exercise_name,
+            "videoId":      video_id,
+        })
+    except (TableNotFoundError, DataError):
+        return jsonify({"error": "session_reporting_unavailable"}), 503
 
     _set_tracker(sess.id, RepTracker(exercise_name=exercise_name))
     return jsonify({"session_id": sess.id}), 201
@@ -2899,11 +2945,23 @@ def session_end(session_id: str):
     body = request.get_json(silent=True) or {}
     completed_flag = bool(body.get("completed", False))
 
+    partial_set = tracker.current_partial_set_result()
     session_result = tracker.finalize_session()
     # Honour explicit completion flag from client (e.g. early exit).
     session_result.completed = session_result.completed and completed_flag if completed_flag else session_result.completed
     if completed_flag:
         session_result.completed = True
+
+    if partial_set is not None:
+        report = _report_generator.build_set_report(partial_set, sess.exerciseName)
+        db.setreport.create(data={
+            "id":              str(uuid.uuid4()),
+            "sessionId":       sess.id,
+            "setNumber":       partial_set.set_number,
+            "overallAccuracy": float(partial_set.set_accuracy),
+            "grade":           partial_set.grade,
+            "reportJson":      json.dumps(report),
+        })
 
     report = _report_generator.build_session_report(session_result)
 
