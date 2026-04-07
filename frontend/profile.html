@@ -484,6 +484,14 @@
         <div class="empty-state">No recent activity</div>
       </div>
     </div>
+
+    <!-- Reporting Sessions (per-set / per-rep / problem joints) -->
+    <div class="recent-activity" style="margin-top:24px;">
+      <div class="section-title">Coached Sessions</div>
+      <div id="coachedSessionsList">
+        <div class="empty-state">No coached sessions yet</div>
+      </div>
+    </div>
   </main>
 
   <script src="/auth.js"></script>
@@ -518,9 +526,145 @@
         renderCalendar();
         renderExerciseBreakdown();
         renderRecentActivity();
+        loadCoachedSessions();
       } catch (err) {
         console.error('Failed to load profile:', err);
       }
+    }
+
+    async function loadCoachedSessions() {
+      const root = document.getElementById('coachedSessionsList');
+      try {
+        const res = await Auth.apiFetch('/api/sessions');
+        if (!res.ok) throw new Error();
+        const sessions = await res.json();
+        if (!sessions.length) {
+          root.innerHTML = '<div class="empty-state">No coached sessions yet</div>';
+          return;
+        }
+        root.innerHTML = sessions.map(renderSessionRow).join('');
+        sessions.forEach(s => {
+          const btn = document.getElementById('expand-' + s.id);
+          if (btn) btn.onclick = () => toggleSessionDetail(s.id);
+        });
+      } catch (e) {
+        root.innerHTML = '<div class="empty-state">Failed to load sessions</div>';
+      }
+    }
+
+    function _humanExercise(name) {
+      if (!name) return '';
+      return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function _accColor(acc) {
+      if (acc == null) return '#888';
+      if (acc >= 0.90) return '#4caf50';
+      if (acc >= 0.75) return '#ffc107';
+      return '#f44336';
+    }
+
+    function renderSessionRow(s) {
+      const accPct = s.overall_accuracy != null ? Math.round(s.overall_accuracy * 100) + '%' : '—';
+      const grade = s.grade || (s.completed ? '—' : 'partial');
+      const date = new Date(s.started_at).toLocaleString();
+      const color = _accColor(s.overall_accuracy);
+      return `
+        <div style="background:#1c1c22;border-radius:10px;padding:14px 18px;margin:10px 0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:700;font-size:15px;">${_humanExercise(s.exercise_name)}</div>
+              <div style="font-size:12px;opacity:.6;">${date} · ${s.completed ? 'Completed' : 'Partial'}</div>
+            </div>
+            <div style="display:flex;gap:14px;align-items:center;">
+              <div style="text-align:right;">
+                <div style="font-weight:800;font-size:18px;color:${color};">${accPct}</div>
+                <div style="font-size:11px;opacity:.6;">${grade}</div>
+              </div>
+              <button id="expand-${s.id}" style="padding:7px 14px;background:#2d5e8f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Details</button>
+              <a href="/report.html?session=${s.id}" style="padding:7px 14px;background:#444;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">Open</a>
+            </div>
+          </div>
+          <div id="detail-${s.id}" style="display:none;margin-top:14px;border-top:1px solid #2a2a30;padding-top:14px;"></div>
+        </div>
+      `;
+    }
+
+    async function toggleSessionDetail(sessionId) {
+      const el = document.getElementById('detail-' + sessionId);
+      if (!el) return;
+      if (el.style.display === 'block') { el.style.display = 'none'; return; }
+      el.style.display = 'block';
+      el.innerHTML = '<div style="opacity:.6;">Loading…</div>';
+      try {
+        const res = await Auth.apiFetch(`/api/session/${sessionId}/report`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        el.innerHTML = renderSessionDetail(data);
+      } catch (e) {
+        el.innerHTML = '<div style="opacity:.6;">Failed to load details.</div>';
+      }
+    }
+
+    function renderRepMini(reps) {
+      if (!reps || !reps.length) return '';
+      const cells = reps.map(r => {
+        const pct = Math.round((r.accuracy || 0) * 100);
+        const color = _accColor(r.accuracy || 0);
+        return `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:42px;">
+            <div style="font-size:11px;font-weight:700;color:${color};">${pct}%</div>
+            <div style="width:100%;height:5px;background:#2a2a30;border-radius:3px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${color};"></div>
+            </div>
+            <div style="font-size:9px;opacity:.55;">R${r.rep}</div>
+          </div>
+        `;
+      }).join('');
+      return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;">${cells}</div>`;
+    }
+
+    function renderSessionDetail(data) {
+      const sets = data.set_reports || [];
+      const sess = data.session_report;
+      const totalReps = sess ? sess.total_reps : sets.reduce((n, s) => n + (s.reps?.length || 0), 0);
+      const accuratelyDone = sets.reduce((n, s) =>
+        n + (s.reps || []).filter(r => (r.accuracy || 0) >= 0.75).length, 0);
+
+      const setsHtml = sets.map(sr => `
+        <div style="background:#15151a;border-radius:8px;padding:10px 14px;margin:8px 0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong style="font-size:13px;">Set ${sr.set_number}</strong>
+            <span style="font-size:12px;font-weight:700;color:${_accColor(sr.overall_accuracy)};">${Math.round((sr.overall_accuracy||0)*100)}% · ${sr.grade}</span>
+          </div>
+          ${renderRepMini(sr.reps || [])}
+        </div>
+      `).join('');
+
+      const problems = (sess?.problem_joints) || (sets.slice(-1)[0]?.problem_joints) || [];
+      const problemsHtml = problems.length ? `
+        <div style="background:#15151a;border-radius:8px;padding:10px 14px;margin:10px 0;">
+          <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-bottom:6px;">Problem joints</div>
+          <ul style="margin:0;padding-left:18px;">
+            ${problems.slice(0, 5).map(j => `
+              <li style="margin:3px 0;font-size:12px;">
+                <strong>${j.label}</strong>
+                <span style="opacity:.65;">· ${j.severity} · ${j.error_pct}% off</span>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+      ` : '';
+
+      return `
+        <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px;margin-bottom:10px;">
+          <div><span style="opacity:.6;">Reps done:</span> <strong>${totalReps}</strong></div>
+          <div><span style="opacity:.6;">Accurate (≥75%):</span> <strong>${accuratelyDone}</strong></div>
+          <div><span style="opacity:.6;">Sets:</span> <strong>${sets.length}</strong></div>
+        </div>
+        ${setsHtml || '<div style="opacity:.6;font-style:italic;">No completed sets.</div>'}
+        ${problemsHtml}
+      `;
     }
 
     function renderStats() {

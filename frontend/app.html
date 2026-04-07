@@ -1588,6 +1588,7 @@
                   <th>Score</th>
                   <th>Duration</th>
                   <th>Date</th>
+                  <th style="text-align:right;">Actions</th>
                 </tr>
               </thead>
               <tbody id="adminReportsTableBody"></tbody>
@@ -1596,6 +1597,20 @@
         </section>
       </div>
     </main>
+  </div>
+
+  <!-- Report Detail Modal (shared by admin & user views in app.html) -->
+  <div id="reportDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#15151a;border:1px solid #252525;border-radius:14px;max-width:780px;width:100%;max-height:92vh;overflow-y:auto;padding:28px 32px;color:#e5e5e5;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h2 id="reportDetailTitle" style="margin:0;font-size:20px;">Report</h2>
+        <div style="display:flex;gap:8px;">
+          <button id="reportDownloadBtn" style="padding:8px 16px;background:#2d5e8f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Download PDF</button>
+          <button onclick="closeReportDetail()" style="padding:8px 14px;background:#444;color:#fff;border:none;border-radius:6px;cursor:pointer;">Close</button>
+        </div>
+      </div>
+      <div id="reportDetailBody"><div class="empty-state">Loading…</div></div>
+    </div>
   </div>
 
   <script src="/auth.js"></script>
@@ -2625,14 +2640,322 @@
       }
 
       tbody.innerHTML = allReports.map(r => `
-        <tr>
+        <tr style="cursor:pointer;" onclick="openReportDetail('${r.id}')">
           <td>${r.user?.username || 'Unknown'}</td>
           <td style="text-transform:capitalize">${r.exercise.replace(/_/g, ' ')}</td>
           <td>${Math.round(r.avg_score)}</td>
           <td>${formatDuration(r.duration_seconds)}</td>
           <td>${new Date(r.created_at).toLocaleDateString()}</td>
+          <td style="text-align:right;" onclick="event.stopPropagation()">
+            <button onclick="openReportDetail('${r.id}')" style="padding:6px 12px;background:#2d5e8f;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:.8rem;font-weight:600;margin-right:6px;">Details</button>
+            <button onclick="downloadReport('${r.id}')" style="padding:6px 12px;background:#444;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:.8rem;font-weight:600;">Download</button>
+          </td>
         </tr>
       `).join('');
+    }
+
+    // ----- Shared report detail / download (admin + user) -----
+    let _currentReport = null;
+
+    async function openReportDetail(reportId) {
+      const modal = document.getElementById('reportDetailModal');
+      modal.style.display = 'flex';
+      const body = document.getElementById('reportDetailBody');
+      body.innerHTML = '<div class="empty-state">Loading…</div>';
+      document.getElementById('reportDetailTitle').textContent = 'Report';
+      try {
+        const res = await Auth.apiFetch(`/api/reports/${reportId}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        _currentReport = await res.json();
+        renderReportDetail(_currentReport);
+        document.getElementById('reportDownloadBtn').onclick = () => downloadReportPdf(_currentReport.id, _currentReport);
+      } catch (e) {
+        body.innerHTML = `<div class="empty-state">Failed to load report: ${e.message}</div>`;
+      }
+    }
+
+    function closeReportDetail() {
+      document.getElementById('reportDetailModal').style.display = 'none';
+      _currentReport = null;
+    }
+
+    function _scoreColor(s) {
+      if (s == null) return '#888';
+      if (s >= 80) return '#4caf50';
+      if (s >= 50) return '#ffc107';
+      return '#f44336';
+    }
+
+    function _humanJoint(name) {
+      return (name || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function _toPercentValue(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return null;
+      return Math.round(numeric <= 1 ? numeric * 100 : numeric);
+    }
+
+    function renderReportDetail(r) {
+      const body = document.getElementById('reportDetailBody');
+      const sc = Math.round(r.avg_score || 0);
+      const total = r.total_frames || 1;
+      const issues = Object.entries(r.joint_issues || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      const issuesHtml = issues.length ? issues.map(([j, c]) => {
+        const pct = Math.round((c / total) * 100);
+        return `
+          <div style="display:grid;grid-template-columns:160px 1fr 70px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #1f1f1f;">
+            <div style="font-size:13px;">${_humanJoint(j)}</div>
+            <div style="background:#1f1f1f;height:8px;border-radius:4px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:${_scoreColor(100 - pct)};"></div></div>
+            <div style="font-size:12px;text-align:right;opacity:.7;">${pct}% (${c})</div>
+          </div>
+        `;
+      }).join('') : '<div style="opacity:.55;font-style:italic;padding:8px 0;">No notable joint issues recorded.</div>';
+
+      const tips = (r.feedback_summary || []).slice(0, 8);
+      const tipsHtml = tips.length ? tips.map(t =>
+        `<li style="margin:4px 0;font-size:13px;">${t}</li>`).join('') : '';
+
+      const repScores = (() => {
+        try {
+          if (!r.rep_scores) return [];
+          return typeof r.rep_scores === 'string' ? JSON.parse(r.rep_scores) : r.rep_scores;
+        } catch (e) { return []; }
+      })();
+      const repJointIssues = (() => {
+        try {
+          if (!r.rep_joint_issues) return [];
+          return typeof r.rep_joint_issues === 'string' ? JSON.parse(r.rep_joint_issues) : r.rep_joint_issues;
+        } catch (e) { return []; }
+      })();
+      const sessionReport = r.session_report && typeof r.session_report === 'object' ? r.session_report : null;
+      const setReports = Array.isArray(r.set_reports) ? r.set_reports : [];
+      const fallbackSessionSets = Array.isArray(sessionReport?.sets)
+        ? sessionReport.sets.map((setItem, index) => ({
+            set_number: Number(setItem?.set) || index + 1,
+            overall_accuracy: setItem?.accuracy,
+            grade: setItem?.grade,
+            reps: [],
+          }))
+        : [];
+      const normalizedSetReports = setReports.length ? setReports : fallbackSessionSets;
+      const sessionProblems = Array.isArray(sessionReport?.problem_joints) ? sessionReport.problem_joints : [];
+
+      const fullSessionHtml = (sessionReport || normalizedSetReports.length)
+        ? (() => {
+            const sessionAccuracy = _toPercentValue(sessionReport?.overall_accuracy);
+            const sessionGrade = sessionReport?.grade || 'N/A';
+            const sessionReps = Number(sessionReport?.total_reps || 0);
+            const sessionCompleted = typeof sessionReport?.completed === 'boolean'
+              ? (sessionReport.completed ? 'Yes' : 'No')
+              : 'Unknown';
+
+            const summaryRows = `
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:8px;">
+                <div style="background:#101015;border:1px solid #23232b;border-radius:10px;padding:10px 12px;">
+                  <div style="font-size:10px;opacity:.55;text-transform:uppercase;">Session Grade</div>
+                  <div style="font-size:16px;font-weight:700;margin-top:2px;">${sessionGrade}</div>
+                </div>
+                <div style="background:#101015;border:1px solid #23232b;border-radius:10px;padding:10px 12px;">
+                  <div style="font-size:10px;opacity:.55;text-transform:uppercase;">Overall Accuracy</div>
+                  <div style="font-size:16px;font-weight:700;margin-top:2px;">${sessionAccuracy == null ? 'N/A' : sessionAccuracy + '%'}</div>
+                </div>
+                <div style="background:#101015;border:1px solid #23232b;border-radius:10px;padding:10px 12px;">
+                  <div style="font-size:10px;opacity:.55;text-transform:uppercase;">Completed / Reps</div>
+                  <div style="font-size:16px;font-weight:700;margin-top:2px;">${sessionCompleted} · ${sessionReps}</div>
+                </div>
+              </div>
+            `;
+
+            const setRows = normalizedSetReports.length
+              ? normalizedSetReports.map((setItem, setIndex) => {
+                  const setNumber = Number(setItem?.set_number) || Number(setItem?.set) || setIndex + 1;
+                  const setAccuracy = _toPercentValue(
+                    setItem?.overall_accuracy ?? setItem?.set_accuracy ?? setItem?.accuracy
+                  );
+                  const setGrade = setItem?.grade || 'N/A';
+                  const reps = Array.isArray(setItem?.reps) ? setItem.reps : [];
+                  const repBadges = reps.length
+                    ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${reps
+                        .slice(0, 20)
+                        .map((rep, repIndex) => {
+                          const repNo = Number(rep?.rep) || repIndex + 1;
+                          const repScore = _toPercentValue(rep?.accuracy ?? rep?.overall_accuracy);
+                          return `<span style="font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid #2f2f39;background:#14141b;color:#d4d4d4;">Rep ${repNo}: ${repScore == null ? 'N/A' : repScore + '%'}</span>`;
+                        })
+                        .join('')}</div>`
+                    : '<div style="font-size:12px;opacity:.62;margin-top:8px;">No rep breakdown available for this set.</div>';
+
+                  return `
+                    <div style="border:1px solid #23232b;border-radius:10px;padding:10px 12px;background:#101015;">
+                      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+                        <span style="font-size:13px;font-weight:700;">Set ${setNumber}</span>
+                        <span style="font-size:12px;opacity:.9;">${setGrade}${setAccuracy == null ? '' : ` · ${setAccuracy}%`}</span>
+                      </div>
+                      ${repBadges}
+                    </div>
+                  `;
+                }).join('')
+              : '<div style="font-size:12px;opacity:.62;font-style:italic;">No set-level summary available.</div>';
+
+            const sessionProblemRows = sessionProblems.length
+              ? sessionProblems.slice(0, 6).map((item) => {
+                  const label = item?.label || _humanJoint(item?.joint || '');
+                  const sev = String(item?.severity || 'unknown');
+                  const pct = Number(item?.error_pct);
+                  return `
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#101015;border:1px solid #23232b;border-radius:9px;">
+                      <span style="font-size:12px;font-weight:600;">${label}</span>
+                      <span style="font-size:12px;opacity:.72;">${sev}${Number.isFinite(pct) ? ` · ${Math.round(pct)}%` : ''}</span>
+                    </div>
+                  `;
+                }).join('')
+              : '<div style="font-size:12px;opacity:.62;font-style:italic;">No session-level problem joints detected.</div>';
+
+            return `
+              <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:18px 0 6px;">Linked full session report</div>
+              ${summaryRows}
+              <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:14px 0 6px;">Set breakdown</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">${setRows}</div>
+              <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:14px 0 6px;">Problem joints (session)</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">${sessionProblemRows}</div>
+            `;
+          })()
+        : '';
+      const repsHtml = repScores.length ? `
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px;">
+          ${repScores.map((s, i) => {
+            const v = Math.round(s);
+            return `
+              <div style="min-width:46px;display:flex;flex-direction:column;align-items:center;gap:3px;">
+                <div style="font-size:11px;font-weight:700;color:${_scoreColor(v)};">${v}</div>
+                <div style="width:46px;height:5px;background:#2a2a30;border-radius:3px;overflow:hidden;"><div style="width:${v}%;height:100%;background:${_scoreColor(v)};"></div></div>
+                <div style="font-size:9px;opacity:.55;">R${i+1}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : '';
+      const repJointIssuesHtml = Array.isArray(repJointIssues) && repJointIssues.length ? `
+        <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:14px 0 6px;">Per-rep joint issues</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          ${repJointIssues.map((issues, idx) => {
+            const entries = issues && typeof issues === 'object'
+              ? Object.entries(issues).filter(([, count]) => Number(count) > 0)
+              : [];
+            if (!entries.length) {
+              return `<div style="font-size:12px;opacity:.65;">Rep ${idx + 1}: none</div>`;
+            }
+            const detail = entries
+              .sort((a, b) => Number(b[1]) - Number(a[1]))
+              .slice(0, 4)
+              .map(([joint, count]) => `${_humanJoint(joint)} (${Math.round(Number(count))})`)
+              .join(', ');
+            return `<div style="font-size:12px;opacity:.9;">Rep ${idx + 1}: ${detail}</div>`;
+          }).join('')}
+        </div>
+      ` : '';
+
+      document.getElementById('reportDetailTitle').textContent =
+        `${(r.user?.username || 'You')} · ${(r.exercise || '').replace(/_/g, ' ')}`;
+
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:18px;align-items:center;margin-bottom:18px;">
+          <div style="width:110px;height:110px;border-radius:50%;background:#1c1c22;border:4px solid ${_scoreColor(sc)};display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:${_scoreColor(sc)};">
+            ${sc}
+          </div>
+          <div>
+            <div style="font-size:13px;opacity:.6;">${new Date(r.created_at).toLocaleString()}</div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;">
+              <div><div style="opacity:.55;font-size:11px;text-transform:uppercase;">Reps</div><div style="font-weight:700;font-size:18px;">${r.rep_count}</div></div>
+              <div><div style="opacity:.55;font-size:11px;text-transform:uppercase;">Duration</div><div style="font-weight:700;font-size:18px;">${formatDuration(r.duration_seconds)}</div></div>
+              <div><div style="opacity:.55;font-size:11px;text-transform:uppercase;">Min</div><div style="font-weight:700;font-size:18px;">${Math.round(r.min_score)}</div></div>
+              <div><div style="opacity:.55;font-size:11px;text-transform:uppercase;">Max</div><div style="font-weight:700;font-size:18px;">${Math.round(r.max_score)}</div></div>
+              <div><div style="opacity:.55;font-size:11px;text-transform:uppercase;">Grade</div><div style="font-weight:700;font-size:18px;">${r.overall_grade || '—'}</div></div>
+            </div>
+          </div>
+        </div>
+
+        ${repsHtml ? `<div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-bottom:4px;">Per-rep score</div>${repsHtml}` : ''}
+        ${repJointIssuesHtml}
+  ${fullSessionHtml}
+
+        <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:14px 0 6px;">Score progression</div>
+        <canvas id="reportDetailChart" style="width:100%;height:120px;background:#0f0f12;border-radius:8px;"></canvas>
+
+        <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:18px 0 6px;">Joint issues</div>
+        ${issuesHtml}
+
+        ${tipsHtml ? `<div style="font-size:11px;opacity:.55;text-transform:uppercase;margin:18px 0 6px;">Coaching tips</div><ul style="margin:0;padding-left:18px;">${tipsHtml}</ul>` : ''}
+      `;
+
+      setTimeout(() => drawReportChart(r.score_history || []), 50);
+    }
+
+    function drawReportChart(scores) {
+      const canvas = document.getElementById('reportDetailChart');
+      if (!canvas || !scores.length) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.offsetWidth, h = 120;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = '#0f0f12'; ctx.fillRect(0, 0, w, h);
+
+      const pad = 8;
+      const max = 100, min = 0;
+      const stepX = (w - pad * 2) / Math.max(1, scores.length - 1);
+      ctx.strokeStyle = '#2d5e8f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      scores.forEach((s, i) => {
+        const x = pad + i * stepX;
+        const y = h - pad - ((s - min) / (max - min)) * (h - pad * 2);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Average line
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const ay = h - pad - ((avg - min) / (max - min)) * (h - pad * 2);
+      ctx.strokeStyle = '#4caf50';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pad, ay); ctx.lineTo(w - pad, ay);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#4caf50';
+      ctx.font = '10px sans-serif';
+      ctx.fillText(`avg ${Math.round(avg)}`, pad + 4, ay - 4);
+    }
+
+    async function downloadReport(reportId) {
+      const reportMeta = allReports.find(r => r.id === reportId) || reports.find(r => r.id === reportId) || _currentReport;
+      return downloadReportPdf(reportId, reportMeta);
+    }
+
+    async function downloadReportPdf(reportId, reportMeta) {
+      try {
+        const res = await Auth.apiFetch(`/api/reports/${reportId}/download`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+
+        const cd = res.headers.get('content-disposition') || '';
+        const fileNameMatch = cd.match(/filename="?([^";]+)"?/i);
+        const fallbackStamp = new Date(reportMeta?.created_at || Date.now()).toISOString().slice(0, 10);
+        const fallbackName = `report-${(reportMeta?.exercise || 'exercise').replace(/\s+/g, '_')}-${fallbackStamp}-${(reportId || '').slice(0, 8)}.pdf`;
+
+        a.href = url;
+        a.download = fileNameMatch ? fileNameMatch[1] : fallbackName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Download failed: ' + e.message);
+      }
     }
 
     // Utility functions

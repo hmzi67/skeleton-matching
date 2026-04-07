@@ -7,6 +7,7 @@ Roles: user | admin
 from __future__ import annotations
 
 import base64
+import io
 import json
 import math
 import os
@@ -42,6 +43,9 @@ from src.filters import LandmarkSmoother, HandLandmarkSmoother
 from src.matcher import match_single_frame
 from src.normalizer import normalize_skeleton, compute_hand_angles
 from src.state_machine import ExerciseStateMachine
+from src.rep_tracker import FrameScore, RepTracker
+from src.report_generator import ReportGenerator
+import threading
 from werkzeug.utils import secure_filename
 
 try:
@@ -1097,6 +1101,8 @@ def _process_live_frame_message(
         "matched_ref_frame_index": int(best_idx),
         "matched_ref_source_frame": int(gt_frame.get("frame_index", best_idx)),
         "joint_diffs": {k: v.get("abs_diff", 0.0) for k, v in best_match.items() if isinstance(v, dict) and "abs_diff" in v},
+        "joint_scores": best_match.get("joint_scores", {}),
+        "joint_errors": best_match.get("joint_errors", {}),
         "joint_statuses": joint_statuses,
         "bone_statuses": bone_statuses,
         "correction_arrows": correction_arrows,
@@ -1219,6 +1225,9 @@ def page_admin():     return app.send_static_file("app.html")
 
 @app.route("/app")
 def page_app():       return app.send_static_file("app.html")
+
+@app.route("/report.html")
+def page_report():    return app.send_static_file("report.html")
 
 
 # ---------------------------------------------------------------------------
@@ -1865,12 +1874,656 @@ def calculate_grade(avg_score: float) -> str:
         return "F"
 
 
+def _copy_default(default):
+    if isinstance(default, list):
+        return list(default)
+    if isinstance(default, dict):
+        return dict(default)
+    return default
+
+
+def _safe_json(value, default):
+    """Decode JSON safely while preserving backward compatibility."""
+    if value is None:
+        return _copy_default(default)
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value) if value else _copy_default(default)
+        except Exception:
+            return _copy_default(default)
+    return _copy_default(default)
+
+
+def _normalize_numeric_list(raw_value) -> list[float]:
+    if not isinstance(raw_value, list):
+        return []
+    values: list[float] = []
+    for item in raw_value:
+        if isinstance(item, (int, float)):
+            values.append(float(item))
+    return values
+
+
+def _normalize_issue_map(raw_value) -> dict[str, int]:
+    if not isinstance(raw_value, dict):
+        return {}
+    result: dict[str, int] = {}
+    for joint, count in raw_value.items():
+        if not isinstance(joint, str) or not isinstance(count, (int, float)):
+            continue
+        value = int(count)
+        if value > 0:
+            result[joint] = value
+    return result
+
+
+def _normalize_rep_joint_issues(raw_value) -> list[dict[str, int]]:
+    if not isinstance(raw_value, list):
+        return []
+    normalized: list[dict[str, int]] = []
+    for item in raw_value:
+        normalized.append(_normalize_issue_map(item))
+    return normalized
+
+
+def _normalize_feedback_summary(raw_value) -> list[str]:
+    if not isinstance(raw_value, list):
+        return []
+    cleaned: list[str] = []
+    for item in raw_value:
+        if isinstance(item, str) and item.strip():
+            cleaned.append(item.strip())
+    return cleaned
+
+
+def _slug_for_filename(value: str, *, fallback: str = "report") -> str:
+    slug = "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug or fallback
+
+
+def _humanize_joint_name(name: str) -> str:
+    return name.replace("_", " ").strip().title() if name else "Unknown"
+
+
+def _as_percentage(value) -> float:
+    if not isinstance(value, (int, float)):
+        return 0.0
+    numeric = float(value)
+    return numeric * 100.0 if numeric <= 1.0 else numeric
+
+
+def _load_reportlab_modules() -> dict:
+    try:
+        import importlib
+
+        return {
+            "pagesizes": importlib.import_module("reportlab.lib.pagesizes"),
+            "colors": importlib.import_module("reportlab.lib.colors"),
+            "styles": importlib.import_module("reportlab.lib.styles"),
+            "platypus": importlib.import_module("reportlab.platypus"),
+        }
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("PDF export requires the reportlab package") from exc
+
+
+def _build_pdf_styles(styles_module, colors_module):
+    sample = styles_module.getSampleStyleSheet()
+    ParagraphStyle = styles_module.ParagraphStyle
+    return {
+        "title_light": ParagraphStyle(
+            "title_light",
+            parent=sample["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=20,
+            leading=24,
+            textColor=colors_module.HexColor("#f8fafc"),
+            spaceAfter=4,
+        ),
+        "meta_light": ParagraphStyle(
+            "meta_light",
+            parent=sample["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=colors_module.HexColor("#cbd5e1"),
+        ),
+        "badge_light": ParagraphStyle(
+            "badge_light",
+            parent=sample["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=18,
+            alignment=1,
+            textColor=colors_module.HexColor("#e6fffa"),
+        ),
+        "section": ParagraphStyle(
+            "section",
+            parent=sample["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=12,
+            leading=16,
+            textColor=colors_module.HexColor("#0f172a"),
+            spaceAfter=6,
+        ),
+        "body": ParagraphStyle(
+            "body",
+            parent=sample["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=colors_module.HexColor("#0f172a"),
+        ),
+        "muted": ParagraphStyle(
+            "muted",
+            parent=sample["BodyText"],
+            fontName="Helvetica",
+            fontSize=8,
+            leading=11,
+            textColor=colors_module.HexColor("#64748b"),
+        ),
+        "metric": ParagraphStyle(
+            "metric",
+            parent=sample["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=16,
+            textColor=colors_module.HexColor("#0f172a"),
+            alignment=1,
+        ),
+        "metric_label": ParagraphStyle(
+            "metric_label",
+            parent=sample["BodyText"],
+            fontName="Helvetica",
+            fontSize=8,
+            leading=10,
+            textColor=colors_module.HexColor("#475569"),
+            alignment=1,
+        ),
+    }
+
+
+def _format_percent_text(value) -> str:
+    return f"{round(_as_percentage(value), 1)}%"
+
+
+def _build_exercise_report_pdf(report_data: dict) -> bytes:
+    modules = _load_reportlab_modules()
+    pagesizes_module = modules["pagesizes"]
+    colors_module = modules["colors"]
+    styles_module = modules["styles"]
+    platypus = modules["platypus"]
+    styles = _build_pdf_styles(styles_module, colors_module)
+
+    score_history = _normalize_numeric_list(report_data.get("score_history", []))
+    rep_scores = _normalize_numeric_list(report_data.get("rep_scores", []))
+    joint_issues = _normalize_issue_map(report_data.get("joint_issues", {}))
+    rep_joint_issues = _normalize_rep_joint_issues(report_data.get("rep_joint_issues", []))
+    feedback_summary = _normalize_feedback_summary(report_data.get("feedback_summary", []))
+    set_reports = report_data.get("set_reports") if isinstance(report_data.get("set_reports"), list) else []
+    session_report = report_data.get("session_report") if isinstance(report_data.get("session_report"), dict) else None
+
+    Paragraph = platypus.Paragraph
+    Spacer = platypus.Spacer
+    Table = platypus.Table
+    TableStyle = platypus.TableStyle
+    SimpleDocTemplate = platypus.SimpleDocTemplate
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=pagesizes_module.LETTER,
+        leftMargin=30,
+        rightMargin=30,
+        topMargin=30,
+        bottomMargin=26,
+        title="Pose Matcher Exercise Report",
+    )
+
+    user = report_data.get("user") or {}
+    story = []
+
+    header = Table(
+        [[
+            Paragraph("Pose Matcher Report", styles["title_light"]),
+            Paragraph(f"{report_data.get('overall_grade', 'N/A')}<br/>{_format_percent_text(report_data.get('avg_score', 0))}", styles["badge_light"]),
+        ]],
+        colWidths=[390, 130],
+    )
+    header.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (1, 0), colors_module.HexColor("#0f172a")),
+        ("BOX", (0, 0), (-1, -1), 1, colors_module.HexColor("#0f172a")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (0, 0), 14),
+        ("RIGHTPADDING", (1, 0), (1, 0), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    story.append(header)
+
+    meta = Paragraph(
+        (
+            f"User: <b>{user.get('username', 'unknown')}</b> &nbsp;&nbsp; "
+            f"Exercise: <b>{report_data.get('exercise', 'unknown')}</b><br/>"
+            f"Created: {report_data.get('created_at', '')} &nbsp;&nbsp; "
+            f"Report ID: {report_data.get('id', '')}"
+        ),
+        styles["muted"],
+    )
+    story.append(Spacer(1, 8))
+    story.append(meta)
+    story.append(Spacer(1, 14))
+
+    stats_cells = [
+        ("Avg Score", _format_percent_text(report_data.get("avg_score", 0))),
+        ("Min Score", _format_percent_text(report_data.get("min_score", 0))),
+        ("Max Score", _format_percent_text(report_data.get("max_score", 0))),
+        ("Reps", str(int(report_data.get("rep_count") or 0))),
+        ("Duration", f"{int(report_data.get('duration_seconds') or 0)} sec"),
+        ("Frames", str(int(report_data.get("total_frames") or 0))),
+    ]
+    stats_table_data = []
+    row: list = []
+    for idx, (label, value) in enumerate(stats_cells):
+        row.append(Paragraph(f"<b>{value}</b><br/>{label}", styles["metric_label"]))
+        if (idx + 1) % 3 == 0:
+            stats_table_data.append(row)
+            row = []
+    stats_table = Table(stats_table_data, colWidths=[170, 170, 170])
+    stats_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors_module.HexColor("#e2e8f0")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors_module.HexColor("#0f172a")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(stats_table)
+    story.append(Spacer(1, 14))
+
+    story.append(Paragraph("Per-Rep Accuracy", styles["section"]))
+    if rep_scores:
+        rep_rows = [["Rep", "Accuracy"]] + [[f"Rep {idx}", f"{round(score, 1)}%"] for idx, score in enumerate(rep_scores, start=1)]
+        rep_table = Table(rep_rows, colWidths=[110, 120])
+        rep_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
+            ("BACKGROUND", (0, 1), (-1, -1), colors_module.HexColor("#f8fafc")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#f8fafc"), colors_module.HexColor("#f1f5f9")]),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(rep_table)
+    else:
+        story.append(Paragraph("No per-rep scores recorded.", styles["muted"]))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("Per-Rep Joint Issues", styles["section"]))
+    if rep_joint_issues:
+        issue_rows = [["Rep", "Issues"]]
+        for idx, issues in enumerate(rep_joint_issues, start=1):
+            if not issues:
+                issue_rows.append([f"Rep {idx}", "None"])
+                continue
+            parts = [
+                f"{_humanize_joint_name(joint)} ({count})"
+                for joint, count in sorted(issues.items(), key=lambda item: item[1], reverse=True)
+            ]
+            issue_rows.append([f"Rep {idx}", ", ".join(parts)])
+        issue_table = Table(issue_rows, colWidths=[80, 450])
+        issue_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
+            ("BACKGROUND", (0, 1), (-1, -1), colors_module.HexColor("#f8fafc")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#f8fafc"), colors_module.HexColor("#f1f5f9")]),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(issue_table)
+    else:
+        story.append(Paragraph("No per-rep joint issues recorded.", styles["muted"]))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("Overall Joint Issues", styles["section"]))
+    if joint_issues:
+        joint_rows = [["Joint", "Flags"]] + [
+            [_humanize_joint_name(joint), str(count)]
+            for joint, count in sorted(joint_issues.items(), key=lambda item: item[1], reverse=True)
+        ]
+        joint_table = Table(joint_rows, colWidths=[350, 80])
+        joint_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#334155")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
+            ("BACKGROUND", (0, 1), (-1, -1), colors_module.HexColor("#ffffff")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(joint_table)
+    else:
+        story.append(Paragraph("No global joint issues recorded.", styles["muted"]))
+
+    if session_report or set_reports:
+        story.append(Spacer(1, 14))
+        story.append(Paragraph("Linked Full Session", styles["section"]))
+        if session_report:
+            summary_table = Table([
+                ["Overall Accuracy", _format_percent_text(session_report.get("overall_accuracy", 0))],
+                ["Total Reps", str(int(session_report.get("total_reps") or 0))],
+                ["Session Grade", str(session_report.get("grade") or "N/A")],
+            ], colWidths=[190, 160])
+            summary_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors_module.HexColor("#ecfeff")),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#67e8f9")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#a5f3fc")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(summary_table)
+            story.append(Spacer(1, 8))
+
+        if set_reports:
+            set_rows = [["Set", "Rep", "Accuracy", "Grade"]]
+            for set_item in set_reports:
+                set_no = int(set_item.get("set_number") or 0)
+                set_grade = str(set_item.get("grade") or "N/A")
+                reps = set_item.get("reps") if isinstance(set_item.get("reps"), list) else []
+                if not reps:
+                    set_rows.append([
+                        f"Set {set_no}",
+                        "-",
+                        _format_percent_text(set_item.get("overall_accuracy", 0)),
+                        set_grade,
+                    ])
+                    continue
+                for rep in reps:
+                    set_rows.append([
+                        f"Set {set_no}",
+                        f"Rep {int(rep.get('rep') or 0)}",
+                        _format_percent_text(rep.get("accuracy", 0)),
+                        set_grade,
+                    ])
+
+            set_table = Table(set_rows, colWidths=[80, 80, 110, 90])
+            set_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(set_table)
+
+    story.append(Spacer(1, 14))
+    story.append(Paragraph("Coaching Summary", styles["section"]))
+    if feedback_summary:
+        for tip in feedback_summary:
+            story.append(Paragraph(f"- {tip}", styles["body"]))
+    else:
+        story.append(Paragraph("No feedback notes recorded.", styles["muted"]))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_session_report_pdf(report_data: dict) -> bytes:
+    modules = _load_reportlab_modules()
+    pagesizes_module = modules["pagesizes"]
+    colors_module = modules["colors"]
+    styles_module = modules["styles"]
+    platypus = modules["platypus"]
+    styles = _build_pdf_styles(styles_module, colors_module)
+
+    Paragraph = platypus.Paragraph
+    Spacer = platypus.Spacer
+    Table = platypus.Table
+    TableStyle = platypus.TableStyle
+    SimpleDocTemplate = platypus.SimpleDocTemplate
+
+    session = report_data.get("session") or {}
+    set_reports = report_data.get("set_reports") if isinstance(report_data.get("set_reports"), list) else []
+    session_report = report_data.get("session_report") if isinstance(report_data.get("session_report"), dict) else {}
+    problem_joints = session_report.get("problem_joints") if isinstance(session_report.get("problem_joints"), list) else []
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=pagesizes_module.LETTER,
+        leftMargin=30,
+        rightMargin=30,
+        topMargin=30,
+        bottomMargin=26,
+        title="Pose Matcher Session Report",
+    )
+
+    story = []
+    header = Table(
+        [[
+            Paragraph("Pose Matcher Session Report", styles["title_light"]),
+            Paragraph(
+                f"{session_report.get('grade', 'N/A')}<br/>{_format_percent_text(session_report.get('overall_accuracy', 0))}",
+                styles["badge_light"],
+            ),
+        ]],
+        colWidths=[390, 130],
+    )
+    header.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (1, 0), colors_module.HexColor("#0f172a")),
+        ("BOX", (0, 0), (-1, -1), 1, colors_module.HexColor("#0f172a")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (0, 0), 14),
+        ("RIGHTPADDING", (1, 0), (1, 0), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+    ]))
+    story.append(header)
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph(
+        (
+            f"Exercise: <b>{session.get('exercise_name', 'unknown')}</b> &nbsp;&nbsp; "
+            f"Session ID: {session.get('id', '')}<br/>"
+            f"Started: {session.get('started_at', '')} &nbsp;&nbsp; "
+            f"Completed: {session.get('completed_at', '') or 'in progress'}"
+        ),
+        styles["muted"],
+    ))
+    story.append(Spacer(1, 14))
+
+    summary_table = Table([
+        ["Overall Accuracy", _format_percent_text(session_report.get("overall_accuracy", 0))],
+        ["Total Reps", str(int(session_report.get("total_reps") or 0))],
+        ["Sets", str(len(set_reports))],
+        ["Completed", "Yes" if bool(session_report.get("completed", False)) else "No"],
+    ], colWidths=[190, 150])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors_module.HexColor("#ecfeff")),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#67e8f9")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#a5f3fc")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 14))
+
+    story.append(Paragraph("Set and Rep Breakdown", styles["section"]))
+    set_rows = [["Set", "Rep", "Accuracy", "Grade"]]
+    if set_reports:
+        for set_item in set_reports:
+            set_no = int(set_item.get("set_number") or 0)
+            set_grade = str(set_item.get("grade") or "N/A")
+            reps = set_item.get("reps") if isinstance(set_item.get("reps"), list) else []
+            if not reps:
+                set_rows.append([
+                    f"Set {set_no}",
+                    "-",
+                    _format_percent_text(set_item.get("overall_accuracy", 0)),
+                    set_grade,
+                ])
+                continue
+            for rep in reps:
+                set_rows.append([
+                    f"Set {set_no}",
+                    f"Rep {int(rep.get('rep') or 0)}",
+                    _format_percent_text(rep.get("accuracy", 0)),
+                    set_grade,
+                ])
+    else:
+        set_rows.append(["-", "-", "-", "No sets recorded"])
+
+    set_table = Table(set_rows, colWidths=[90, 90, 110, 110])
+    set_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(set_table)
+    story.append(Spacer(1, 14))
+
+    story.append(Paragraph("Problem Joints", styles["section"]))
+    if problem_joints:
+        problem_rows = [["Joint", "Severity", "Error %"]]
+        for item in problem_joints:
+            if not isinstance(item, dict):
+                continue
+            problem_rows.append([
+                str(item.get("label") or _humanize_joint_name(str(item.get("joint") or ""))),
+                str(item.get("severity") or "unknown"),
+                f"{round(float(item.get('error_pct', 0.0)), 1)}%" if isinstance(item.get("error_pct"), (int, float)) else "0.0%",
+            ])
+        problem_table = Table(problem_rows, colWidths=[230, 120, 90])
+        problem_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#334155")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(problem_table)
+    else:
+        story.append(Paragraph("No notable joint issues detected.", styles["muted"]))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _serialize_exercise_report(report) -> dict:
+    score_history = _normalize_numeric_list(_safe_json(report.scoreHistory, []))
+    phase_history = _safe_json(report.phaseHistory, [])
+    if not isinstance(phase_history, list):
+        phase_history = []
+    joint_issues = _normalize_issue_map(_safe_json(report.jointIssues, {}))
+    bone_issues = _normalize_issue_map(_safe_json(report.boneIssues, {}))
+    feedback_summary = _normalize_feedback_summary(_safe_json(report.feedbackSummary, []))
+    rep_scores = _normalize_numeric_list(_safe_json(getattr(report, "repScores", None), []))
+    rep_joint_issues = _normalize_rep_joint_issues(_safe_json(getattr(report, "repJointIssues", None), []))
+    session_id = getattr(report, "sessionId", None)
+
+    return {
+        "id": report.id,
+        "session_id": session_id,
+        "has_full_session_report": bool(session_id),
+        "exercise": report.exercise,
+        "reference_video_id": report.referenceVideoId,
+        "duration_seconds": report.durationSeconds,
+        "total_frames": report.totalFrames,
+        "rep_count": report.repCount,
+        "avg_score": report.avgScore,
+        "min_score": report.minScore,
+        "max_score": report.maxScore,
+        "overall_grade": report.overallGrade,
+        "score_history": score_history,
+        "phase_history": phase_history,
+        "joint_issues": joint_issues,
+        "bone_issues": bone_issues,
+        "feedback_summary": feedback_summary,
+        "rep_scores": rep_scores,
+        "rep_joint_issues": rep_joint_issues,
+        "created_at": report.createdAt.isoformat(),
+        "user": {
+            "id": report.user.id,
+            "username": report.user.username,
+        } if hasattr(report, "user") and report.user else None,
+    }
+
+
+def _fetch_session_bundle(session_id: str, *, requester_user_id: str, is_admin: bool) -> dict | None:
+    if not session_id:
+        return None
+
+    sess = db.exercisesession.find_unique(
+        where={"id": session_id},
+        include={"user": True},
+    )
+    if not sess:
+        return None
+    if not is_admin and sess.userId != requester_user_id:
+        return None
+
+    set_rows = db.setreport.find_many(
+        where={"sessionId": session_id},
+        order={"setNumber": "asc"},
+    )
+    sess_row = db.sessionreport.find_unique(where={"sessionId": session_id})
+
+    return {
+        "session": {
+            "id": sess.id,
+            "exercise_name": sess.exerciseName,
+            "video_id": sess.videoId,
+            "started_at": sess.startedAt.isoformat(),
+            "completed_at": sess.completedAt.isoformat() if sess.completedAt else None,
+            "completed": sess.completed,
+            "username": sess.user.username if hasattr(sess, "user") and sess.user else None,
+        },
+        "set_reports": [_safe_json(row.reportJson, {}) for row in set_rows],
+        "session_report": _safe_json(sess_row.reportJson, {}) if sess_row else None,
+    }
+
+
 @app.route("/api/reports", methods=["POST"])
 @require_auth
 def create_report():
     """Save an exercise session report."""
     user_id = request.user["sub"]
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     
     if not data:
         return jsonify({"error": "No data provided"}), 400
@@ -1879,35 +2532,75 @@ def create_report():
     for field in required_fields:
         if field not in data:
             return jsonify({"error": f"Missing required field: {field}"}), 400
-    
-    score_history = data.get("score_history", [])
-    scores = [s for s in score_history if isinstance(s, (int, float))]
+
+    exercise_name = str(data.get("exercise") or "Unknown").strip() or "Unknown"
+    reference_video_id = str(data.get("reference_video_id") or "")
+
+    try:
+        duration_seconds = int(data.get("duration_seconds") or 0)
+    except (TypeError, ValueError):
+        duration_seconds = 0
+    duration_seconds = max(duration_seconds, 0)
+
+    score_history = _normalize_numeric_list(data.get("score_history", []))
+    phase_history_raw = data.get("phase_history", [])
+    phase_history = phase_history_raw if isinstance(phase_history_raw, list) else []
+    joint_issues = _normalize_issue_map(data.get("joint_issues", {}))
+    bone_issues = _normalize_issue_map(data.get("bone_issues", {}))
+
+    feedback_summary_raw = data.get("feedback_summary", [])
+    feedback_summary = [
+        item.strip()
+        for item in feedback_summary_raw
+        if isinstance(item, str) and item.strip()
+    ] if isinstance(feedback_summary_raw, list) else []
+
+    session_id_raw = data.get("session_id")
+    session_id = str(session_id_raw).strip() if isinstance(session_id_raw, str) else None
+    if session_id:
+        linked_session = db.exercisesession.find_unique(where={"id": session_id})
+        if not linked_session or linked_session.userId != user_id:
+            return jsonify({"error": "invalid session_id"}), 400
+    else:
+        session_id = None
+
+    rep_scores = _normalize_numeric_list(data.get("rep_scores", []))
+    rep_joint_issues = _normalize_rep_joint_issues(data.get("rep_joint_issues", []))
+
+    try:
+        rep_count = int(data.get("rep_count") or 0)
+    except (TypeError, ValueError):
+        rep_count = 0
+    rep_count = max(rep_count, 0)
+    if rep_count == 0 and rep_scores:
+        rep_count = len(rep_scores)
+
+    scores = score_history
     
     avg_score = sum(scores) / len(scores) if scores else 0
     min_score = min(scores) if scores else 0
     max_score = max(scores) if scores else 0
     overall_grade = calculate_grade(avg_score)
     
-    import json
-    
     report = db.exercisereport.create(
         data={
             "userId": user_id,
-            "exercise": data.get("exercise", "Unknown"),
-            "referenceVideoId": data.get("reference_video_id", ""),
-            "durationSeconds": data.get("duration_seconds", 0),
+            "sessionId": session_id,
+            "exercise": exercise_name,
+            "referenceVideoId": reference_video_id,
+            "durationSeconds": duration_seconds,
             "totalFrames": len(scores),
-            "repCount": data.get("rep_count", 0),
+            "repCount": rep_count,
             "avgScore": round(avg_score, 2),
             "minScore": round(min_score, 2),
             "maxScore": round(max_score, 2),
             "scoreHistory": json.dumps(score_history),
-            "phaseHistory": json.dumps(data.get("phase_history", [])),
-            "jointIssues": json.dumps(data.get("joint_issues", {})),
-            "boneIssues": json.dumps(data.get("bone_issues", {})),
-            "feedbackSummary": json.dumps(data.get("feedback_summary", [])),
-            "repScores": json.dumps(data.get("rep_scores", [])),
-            "repJointIssues": json.dumps(data.get("rep_joint_issues", [])),
+            "phaseHistory": json.dumps(phase_history),
+            "jointIssues": json.dumps(joint_issues),
+            "boneIssues": json.dumps(bone_issues),
+            "feedbackSummary": json.dumps(feedback_summary),
+            "repScores": json.dumps(rep_scores),
+            "repJointIssues": json.dumps(rep_joint_issues),
             "overallGrade": overall_grade,
         }
     )
@@ -1939,30 +2632,7 @@ def get_reports():
             order={"createdAt": "desc"}
         )
     
-    import json
-    
-    return jsonify([{
-        "id": r.id,
-        "exercise": r.exercise,
-        "reference_video_id": r.referenceVideoId,
-        "duration_seconds": r.durationSeconds,
-        "total_frames": r.totalFrames,
-        "rep_count": r.repCount,
-        "avg_score": r.avgScore,
-        "min_score": r.minScore,
-        "max_score": r.maxScore,
-        "overall_grade": r.overallGrade,
-        "score_history": json.loads(r.scoreHistory),
-        "phase_history": json.loads(r.phaseHistory),
-        "joint_issues": json.loads(r.jointIssues),
-        "bone_issues": json.loads(r.boneIssues),
-        "feedback_summary": json.loads(r.feedbackSummary),
-        "created_at": r.createdAt.isoformat(),
-        "user": {
-            "id": r.user.id,
-            "username": r.user.username
-        } if hasattr(r, 'user') and r.user else None
-    } for r in reports])
+    return jsonify([_serialize_exercise_report(r) for r in reports])
 
 
 @app.route("/api/reports/<report_id>", methods=["GET"])
@@ -1983,31 +2653,64 @@ def get_report(report_id: str):
     # Users can only view their own reports, admins can view all
     if not is_admin and report.userId != user_id:
         return jsonify({"error": "Access denied"}), 403
-    
-    import json
-    
-    return jsonify({
-        "id": report.id,
-        "exercise": report.exercise,
-        "reference_video_id": report.referenceVideoId,
-        "duration_seconds": report.durationSeconds,
-        "total_frames": report.totalFrames,
-        "rep_count": report.repCount,
-        "avg_score": report.avgScore,
-        "min_score": report.minScore,
-        "max_score": report.maxScore,
-        "overall_grade": report.overallGrade,
-        "score_history": json.loads(report.scoreHistory),
-        "phase_history": json.loads(report.phaseHistory),
-        "joint_issues": json.loads(report.jointIssues),
-        "bone_issues": json.loads(report.boneIssues),
-        "feedback_summary": json.loads(report.feedbackSummary),
-        "created_at": report.createdAt.isoformat(),
-        "user": {
-            "id": report.user.id,
-            "username": report.user.username
-        } if report.user else None
-    })
+
+    payload = _serialize_exercise_report(report)
+    session_id = payload.get("session_id")
+    if isinstance(session_id, str) and session_id:
+        session_bundle = _fetch_session_bundle(
+            session_id,
+            requester_user_id=user_id,
+            is_admin=is_admin,
+        )
+        if session_bundle:
+            payload.update(session_bundle)
+
+    return jsonify(payload)
+
+
+@app.route("/api/reports/<report_id>/download", methods=["GET"])
+@require_auth
+def download_report_pdf(report_id: str):
+    """Download an exercise report as PDF (admin or owner)."""
+    user_id = request.user["sub"]
+    is_admin = request.user.get("role") == "admin"
+
+    report = db.exercisereport.find_unique(
+        where={"id": report_id},
+        include={"user": True},
+    )
+    if not report:
+        abort(404)
+    if not is_admin and report.userId != user_id:
+        return jsonify({"error": "Access denied"}), 403
+
+    report_payload = _serialize_exercise_report(report)
+    session_id = report_payload.get("session_id")
+    if isinstance(session_id, str) and session_id:
+        session_bundle = _fetch_session_bundle(
+            session_id,
+            requester_user_id=user_id,
+            is_admin=is_admin,
+        )
+        if session_bundle:
+            report_payload.update(session_bundle)
+
+    try:
+        pdf_bytes = _build_exercise_report_pdf(report_payload)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    created_stamp = report.createdAt.strftime("%Y%m%d")
+    user_part = _slug_for_filename(report_payload.get("user", {}).get("username") if report_payload.get("user") else "user", fallback="user")
+    exercise_part = _slug_for_filename(report.exercise, fallback="exercise")
+    filename = f"report-{user_part}-{exercise_part}-{created_stamp}-{report.id[:8]}.pdf"
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.route("/api/reports/<report_id>", methods=["DELETE"])
@@ -2058,8 +2761,271 @@ def get_users():
 
 
 # ---------------------------------------------------------------------------
+# Exercise sessions / reports API
+# ---------------------------------------------------------------------------
+
+# Module-level RepTracker registry. Flask's dev server is multi-threaded, so
+# every read/write must hold _rep_trackers_lock.
+_rep_trackers: dict[str, RepTracker] = {}
+_rep_trackers_lock = threading.Lock()
+_report_generator = ReportGenerator()
+
+
+def _get_tracker(session_id: str) -> RepTracker | None:
+    with _rep_trackers_lock:
+        return _rep_trackers.get(session_id)
+
+
+def _set_tracker(session_id: str, tracker: RepTracker) -> None:
+    with _rep_trackers_lock:
+        _rep_trackers[session_id] = tracker
+
+
+def _drop_tracker(session_id: str) -> None:
+    with _rep_trackers_lock:
+        _rep_trackers.pop(session_id, None)
+
+
+def _load_session_or_404(session_id: str):
+    sess = db.exercisesession.find_unique(where={"id": session_id})
+    if not sess or sess.userId != request.user["sub"]:
+        return None
+    return sess
+
+
+@app.route("/api/session/start", methods=["POST"])
+@require_auth
+def session_start():
+    data = request.get_json(silent=True) or {}
+    exercise_name = (data.get("exercise_name") or "").strip()
+    video_id = data.get("video_id")
+    if not exercise_name:
+        return jsonify({"error": "exercise_name is required"}), 400
+
+    sess = db.exercisesession.create(data={
+        "id":           str(uuid.uuid4()),
+        "userId":       request.user["sub"],
+        "exerciseName": exercise_name,
+        "videoId":      video_id,
+    })
+
+    _set_tracker(sess.id, RepTracker(exercise_name=exercise_name))
+    return jsonify({"session_id": sess.id}), 201
+
+
+@app.route("/api/session/<session_id>/frame", methods=["POST"])
+@require_auth
+def session_frame(session_id: str):
+    if not _load_session_or_404(session_id):
+        return jsonify({"error": "session not found"}), 404
+    tracker = _get_tracker(session_id)
+    if tracker is None:
+        return jsonify({"error": "tracker not active"}), 410
+
+    payload = (request.get_json(silent=True) or {}).get("frame_score") or {}
+    try:
+        fs = FrameScore(
+            frame_index=int(payload.get("frame_index", 0)),
+            joint_errors=dict(payload.get("joint_errors") or {}),
+            joint_scores=dict(payload.get("joint_scores") or {}),
+            overall_score=float(payload.get("overall_score", 0.0)),
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid frame_score"}), 400
+
+    tracker.on_frame(fs)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/session/<session_id>/rep-complete", methods=["POST"])
+@require_auth
+def session_rep_complete(session_id: str):
+    if not _load_session_or_404(session_id):
+        return jsonify({"error": "session not found"}), 404
+    tracker = _get_tracker(session_id)
+    if tracker is None:
+        return jsonify({"error": "tracker not active"}), 410
+
+    rep = tracker.on_rep_complete()
+    return jsonify({
+        "rep_number": rep.rep_number,
+        "accuracy":   rep.accuracy,
+        "rep_result": {
+            "rep_number":          rep.rep_number,
+            "accuracy":            rep.accuracy,
+            "joint_error_summary": rep.joint_error_summary,
+            "joint_accuracy":      rep.joint_accuracy,
+            "frame_count":         rep.frame_count,
+            "duration_ms":         rep.duration_ms,
+        },
+    })
+
+
+@app.route("/api/session/<session_id>/set-complete", methods=["POST"])
+@require_auth
+def session_set_complete(session_id: str):
+    sess = _load_session_or_404(session_id)
+    if not sess:
+        return jsonify({"error": "session not found"}), 404
+    tracker = _get_tracker(session_id)
+    if tracker is None:
+        return jsonify({"error": "tracker not active"}), 410
+
+    set_result = tracker.on_set_complete()
+    report = _report_generator.build_set_report(set_result, sess.exerciseName)
+
+    db.setreport.create(data={
+        "id":              str(uuid.uuid4()),
+        "sessionId":       sess.id,
+        "setNumber":       set_result.set_number,
+        "overallAccuracy": float(set_result.set_accuracy),
+        "grade":           set_result.grade,
+        "reportJson":      json.dumps(report),
+    })
+
+    return jsonify(report)
+
+
+@app.route("/api/session/<session_id>/end", methods=["POST"])
+@require_auth
+def session_end(session_id: str):
+    sess = _load_session_or_404(session_id)
+    if not sess:
+        return jsonify({"error": "session not found"}), 404
+    tracker = _get_tracker(session_id)
+    if tracker is None:
+        return jsonify({"error": "tracker not active"}), 410
+
+    body = request.get_json(silent=True) or {}
+    completed_flag = bool(body.get("completed", False))
+
+    session_result = tracker.finalize_session()
+    # Honour explicit completion flag from client (e.g. early exit).
+    session_result.completed = session_result.completed and completed_flag if completed_flag else session_result.completed
+    if completed_flag:
+        session_result.completed = True
+
+    report = _report_generator.build_session_report(session_result)
+
+    db.sessionreport.upsert(
+        where={"sessionId": sess.id},
+        data={
+            "create": {
+                "id":              str(uuid.uuid4()),
+                "sessionId":       sess.id,
+                "overallAccuracy": float(session_result.overall_accuracy),
+                "grade":           report["grade"],
+                "completed":       bool(session_result.completed),
+                "reportJson":      json.dumps(report),
+            },
+            "update": {
+                "overallAccuracy": float(session_result.overall_accuracy),
+                "grade":           report["grade"],
+                "completed":       bool(session_result.completed),
+                "reportJson":      json.dumps(report),
+            },
+        },
+    )
+
+    db.exercisesession.update(
+        where={"id": sess.id},
+        data={
+            "completed":   bool(session_result.completed),
+            "completedAt": datetime.now(timezone.utc),
+        },
+    )
+
+    _drop_tracker(session_id)
+    return jsonify(report)
+
+
+def _parse_report_json(value) -> dict:
+    """Prisma may hand back a Json column as either str or dict."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return {}
+    return value or {}
+
+
+@app.route("/api/session/<session_id>/report", methods=["GET"])
+@require_auth
+def session_get_report(session_id: str):
+    bundle = _fetch_session_bundle(
+        session_id,
+        requester_user_id=request.user["sub"],
+        is_admin=request.user.get("role") == "admin",
+    )
+    if not bundle:
+        return jsonify({"error": "session not found"}), 404
+    return jsonify(bundle)
+
+
+@app.route("/api/session/<session_id>/report/download", methods=["GET"])
+@require_auth
+def session_download_report_pdf(session_id: str):
+    """Download the per-session report as PDF."""
+    is_admin = request.user.get("role") == "admin"
+    sess = db.exercisesession.find_unique(
+        where={"id": session_id},
+        include={"user": True},
+    )
+    if not sess:
+        return jsonify({"error": "session not found"}), 404
+    if not is_admin and sess.userId != request.user["sub"]:
+        return jsonify({"error": "Access denied"}), 403
+
+    payload = _fetch_session_bundle(
+        session_id,
+        requester_user_id=request.user["sub"],
+        is_admin=is_admin,
+    )
+    if not payload:
+        return jsonify({"error": "session not found"}), 404
+
+    try:
+        pdf_bytes = _build_session_report_pdf(payload)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    created_stamp = sess.startedAt.strftime("%Y%m%d")
+    user_part = _slug_for_filename(sess.user.username if hasattr(sess, "user") and sess.user else "user", fallback="user")
+    exercise_part = _slug_for_filename(sess.exerciseName, fallback="exercise")
+    filename = f"session-report-{user_part}-{exercise_part}-{created_stamp}-{sess.id[:8]}.pdf"
+
+    return send_file(
+        io.BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.route("/api/sessions", methods=["GET"])
+@require_auth
+def list_sessions():
+    sessions = db.exercisesession.find_many(
+        where={"userId": request.user["sub"]},
+        order={"startedAt": "desc"},
+        include={"sessionReport": True},
+    )
+    return jsonify([
+        {
+            "id":               s.id,
+            "exercise_name":    s.exerciseName,
+            "started_at":       s.startedAt.isoformat(),
+            "completed":        s.completed,
+            "overall_accuracy": s.sessionReport.overallAccuracy if s.sessionReport else None,
+            "grade":            s.sessionReport.grade if s.sessionReport else None,
+        }
+        for s in sessions
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    app.run(debug=True, port=5000)

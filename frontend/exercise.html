@@ -785,6 +785,212 @@
     let targetReps = 10;          // default; overridden by backend "ready" message
     let sessionCompleteHandled = false;
 
+    // ---- Reporting (per-rep / per-set / per-session) ----
+    const REPS_PER_SET = 10;
+    const TOTAL_SETS = 3;
+    let reportSessionId = null;
+    let reportFrameIndex = 0;
+    let reportRepsInCurrentSet = 0;
+    let reportSetNumber = 1;
+    let reportInterstitialShown = false;
+
+    async function ensureReportSession() {
+      if (reportSessionId) return reportSessionId;
+      try {
+        const res = await Auth.apiFetch('/api/session/start', {
+          method: 'POST',
+          body: JSON.stringify({ exercise_name: exercise, video_id: refId }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        reportSessionId = data.session_id;
+        return reportSessionId;
+      } catch (e) { return null; }
+    }
+
+    async function reportSendFrame(data) {
+      const sid = reportSessionId;
+      if (!sid) return;
+      const overall = (typeof data.match_score === 'number') ? data.match_score / 100 : 0;
+      try {
+        await Auth.apiFetch(`/api/session/${sid}/frame`, {
+          method: 'POST',
+          body: JSON.stringify({
+            frame_score: {
+              frame_index: reportFrameIndex++,
+              overall_score: overall,
+              joint_scores: data.joint_scores || {},
+              joint_errors: data.joint_errors || {},
+            },
+          }),
+        });
+      } catch (e) {}
+    }
+
+    async function reportRepComplete() {
+      const sid = reportSessionId;
+      if (!sid) return;
+      try {
+        await Auth.apiFetch(`/api/session/${sid}/rep-complete`, { method: 'POST' });
+      } catch (e) {}
+      reportRepsInCurrentSet++;
+      if (reportRepsInCurrentSet >= REPS_PER_SET) {
+        await reportSetComplete();
+      }
+    }
+
+    async function reportSetComplete() {
+      const sid = reportSessionId;
+      if (!sid) return;
+      try {
+        const res = await Auth.apiFetch(`/api/session/${sid}/set-complete`, { method: 'POST' });
+        if (res.ok) {
+          const setReport = await res.json();
+          showSetInterstitial(setReport);
+        }
+      } catch (e) {}
+      reportRepsInCurrentSet = 0;
+      reportSetNumber++;
+    }
+
+    async function reportSessionEnd(completed) {
+      const sid = reportSessionId;
+      if (!sid) return null;
+      try {
+        const res = await Auth.apiFetch(`/api/session/${sid}/end`, {
+          method: 'POST',
+          body: JSON.stringify({ completed: !!completed }),
+        });
+        if (res.ok) return await res.json();
+      } catch (e) {}
+      return null;
+    }
+
+    function _repColorClass(acc) {
+      if (acc >= 0.90) return '#4caf50';
+      if (acc >= 0.75) return '#ffc107';
+      return '#f44336';
+    }
+
+    function _renderRepGrid(reps) {
+      if (!reps || reps.length === 0) return '';
+      const cells = reps.map(r => {
+        const pct = Math.round((r.accuracy || 0) * 100);
+        const color = _repColorClass(r.accuracy || 0);
+        return `
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:46px;">
+            <div style="font-size:13px;font-weight:700;color:${color};">${pct}%</div>
+            <div style="width:100%;height:6px;background:#2a2a30;border-radius:3px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${color};"></div>
+            </div>
+            <div style="font-size:10px;opacity:.6;">Rep ${r.rep}</div>
+          </div>
+        `;
+      }).join('');
+      return `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:14px 0;">${cells}</div>`;
+    }
+
+    function showSetInterstitial(setReport) {
+      if (reportInterstitialShown) return;
+      reportInterstitialShown = true;
+      const top2 = (setReport.problem_joints || []).slice(0, 2)
+        .map(j => `<li>${j.label} <span style="opacity:.7">(${j.severity})</span></li>`).join('');
+      const isLast = setReport.set_number >= TOTAL_SETS;
+      const repsGrid = _renderRepGrid(setReport.reps || []);
+      const overlay = document.createElement('div');
+      overlay.id = 'pm-set-interstitial';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;';
+      overlay.innerHTML = `
+        <div style="background:#1c1c22;padding:28px 36px;border-radius:14px;max-width:560px;width:100%;text-align:center;max-height:90vh;overflow-y:auto;">
+          <h2 style="margin:0 0 6px;font-size:22px;">Set ${setReport.set_number} complete!</h2>
+          <div style="font-size:42px;font-weight:800;margin:6px 0;">${Math.round((setReport.overall_accuracy||0)*100)}%</div>
+          <div style="opacity:.8;margin-bottom:8px;">${setReport.grade}</div>
+          <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-top:14px;">Per-rep accuracy</div>
+          ${repsGrid}
+          ${top2 ? `<div style="text-align:left;margin:14px 0;"><div style="font-size:11px;opacity:.55;text-transform:uppercase;">Top issues</div><ul style="margin:6px 0 0;padding-left:18px;">${top2}</ul></div>` : ''}
+          <div id="pm-rest-timer" style="font-size:14px;opacity:.7;margin:12px 0;">Rest 30s</div>
+          <button id="pm-next-set" style="padding:10px 24px;border:none;border-radius:8px;background:#4caf50;color:#fff;font-weight:700;cursor:pointer;font-size:14px;">${isLast ? 'Finish session' : `Start Set ${setReport.set_number + 1}`}</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      let secs = 30;
+      const timerEl = overlay.querySelector('#pm-rest-timer');
+      const tick = setInterval(() => {
+        secs--;
+        if (secs <= 0) { clearInterval(tick); timerEl.textContent = 'Ready!'; }
+        else timerEl.textContent = `Rest ${secs}s`;
+      }, 1000);
+      overlay.querySelector('#pm-next-set').onclick = async () => {
+        clearInterval(tick);
+        overlay.remove();
+        reportInterstitialShown = false;
+        if (isLast) {
+          const sessionReport = await reportSessionEnd(true);
+          reportSessionId = null;
+          showSessionEndScreen(sessionReport);
+          try { stopCamera(); } catch (e) {}
+        }
+      };
+    }
+
+    async function showSessionEndScreen(sessionReport) {
+      const sid = reportSessionId || _lastEndedSessionId;
+      const accPct = sessionReport ? Math.round((sessionReport.overall_accuracy||0)*100) : 0;
+      const grade = sessionReport ? sessionReport.grade : '—';
+      const completed = sessionReport ? !!sessionReport.completed : false;
+      const totalReps = sessionReport ? sessionReport.total_reps : 0;
+
+      // Fetch the full per-set breakdown so we can show every rep.
+      let setReports = [];
+      if (sid) {
+        try {
+          const r = await Auth.apiFetch(`/api/session/${sid}/report`);
+          if (r.ok) {
+            const j = await r.json();
+            setReports = j.set_reports || [];
+          }
+        } catch (e) {}
+      }
+
+      const top = sessionReport ? (sessionReport.problem_joints || []).slice(0, 5) : [];
+      const topHtml = top.map(j => `
+        <li style="margin:4px 0;">
+          <strong>${j.label}</strong>
+          <span style="opacity:.7;font-size:12px;"> · ${j.severity} · ${j.error_pct}% off</span>
+        </li>
+      `).join('');
+
+      const setsHtml = setReports.map(sr => `
+        <div style="border:1px solid #2a2a30;border-radius:10px;padding:12px 14px;margin:10px 0;text-align:left;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <strong style="font-size:14px;">Set ${sr.set_number}</strong>
+            <span style="font-size:13px;font-weight:700;color:${_repColorClass(sr.overall_accuracy||0)};">${Math.round((sr.overall_accuracy||0)*100)}% · ${sr.grade}</span>
+          </div>
+          ${_renderRepGrid(sr.reps || [])}
+        </div>
+      `).join('');
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;';
+      overlay.innerHTML = `
+        <div style="background:#1c1c22;padding:32px 38px;border-radius:14px;max-width:640px;width:100%;text-align:center;max-height:92vh;overflow-y:auto;">
+          <h2 style="margin:0 0 4px;font-size:24px;">Session ${completed ? 'complete' : 'ended'}</h2>
+          <div style="opacity:.6;font-size:12px;margin-bottom:8px;">${totalReps} reps across ${setReports.length} set${setReports.length === 1 ? '' : 's'}</div>
+          <div style="font-size:48px;font-weight:800;margin:10px 0;color:${_repColorClass((sessionReport?.overall_accuracy)||0)};">${accPct}%</div>
+          <div style="opacity:.85;margin-bottom:12px;">${grade}${completed ? '' : ' · partial'}</div>
+          ${setsHtml || '<div style="opacity:.6;font-style:italic;margin:14px 0;">No completed sets recorded.</div>'}
+          ${topHtml ? `<div style="text-align:left;background:#15151a;padding:14px 16px;border-radius:10px;margin:14px 0;"><div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-bottom:6px;">Top problem joints</div><ul style="margin:0;padding-left:18px;">${topHtml}</ul></div>` : ''}
+          <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">
+            <a href="/report.html?session=${sid}" style="padding:10px 22px;border-radius:8px;background:#2d5e8f;color:#fff;text-decoration:none;font-weight:700;">View full report</a>
+            <a href="/profile" style="padding:10px 22px;border-radius:8px;background:#444;color:#fff;text-decoration:none;font-weight:700;">My profile</a>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+    let _lastEndedSessionId = null;
+
+
     // MediaPipe connections for skeleton drawing
     const POSE_CONNECTIONS = [
       [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8],
@@ -1356,17 +1562,26 @@
         _track(data.coaching_text);
         (data.feedback?.top_joint_feedback || []).forEach(jf => _track(jf?.instruction));
 
+        // Reporting: ensure session and forward this frame.
+        ensureReportSession().then(() => reportSendFrame(data));
+
         // Per-rep event from backend
         if (data.rep_completed) {
           const rc = data.rep_completed;
           repData.push({ rep: rc.rep_number, score: rc.score, jointIssues: rc.joint_issues || {} });
           updateRepChip();
+          reportRepComplete();
         }
 
         // Auto-stop when target reps reached
         if (data.session_complete && !sessionCompleteHandled) {
           sessionCompleteHandled = true;
           showCoachingText(`${targetReps} reps done! Great work!`);
+          _lastEndedSessionId = reportSessionId;
+          reportSessionEnd(true).then(sr => {
+            reportSessionId = null;
+            if (sr) showSessionEndScreen(sr);
+          });
           setTimeout(() => stopCamera(), 800);
         }
       }
@@ -1485,6 +1700,14 @@
       currentRepCount = 0;
       repData = [];
       sessionCompleteHandled = false;
+
+      // Reset reporting session linkage for this workout.
+      reportSessionId = null;
+      _lastEndedSessionId = null;
+      reportFrameIndex = 0;
+      reportRepsInCurrentSet = 0;
+      reportSetNumber = 1;
+      reportInterstitialShown = false;
 
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
       const token = encodeURIComponent(Auth.getToken() || '');
@@ -1660,9 +1883,25 @@
       
       // Show modal
       document.getElementById('reportModal').classList.add('visible');
+
+      const repScoresForSave = repData
+        .map(r => Number(r.score))
+        .filter(v => Number.isFinite(v));
+      const repJointIssuesForSave = repData.map(r => {
+        const source = (r && typeof r === 'object') ? (r.jointIssues || {}) : {};
+        const cleaned = {};
+        for (const [joint, count] of Object.entries(source)) {
+          const numeric = Number(count);
+          if (Number.isFinite(numeric) && numeric > 0) {
+            cleaned[joint] = Math.round(numeric);
+          }
+        }
+        return cleaned;
+      });
       
       // Save report to backend
       try {
+        const linkedSessionId = reportSessionId || _lastEndedSessionId || null;
         await Auth.apiFetch('/api/reports', {
           method: 'POST',
           body: JSON.stringify({
@@ -1674,7 +1913,10 @@
             rep_count: currentRepCount,
             joint_issues: jointIssueTracker,
             bone_issues: boneIssueTracker,
-            feedback_summary: topFeedback
+            feedback_summary: topFeedback,
+            rep_scores: repScoresForSave,
+            rep_joint_issues: repJointIssuesForSave,
+            session_id: linkedSessionId
           })
         });
       } catch (err) {
@@ -1915,6 +2157,15 @@
       camBtn.disabled = false;
       refVideo.pause();
       stopMatchingLoop();
+
+      // Finalise reporting session if one was started and not yet ended.
+      if (reportSessionId && !sessionCompleteHandled) {
+        _lastEndedSessionId = reportSessionId;
+        reportSessionEnd(false).then(sr => {
+          reportSessionId = null;  // clear after end completes so showSessionEndScreen can read it
+          if (sr) showSessionEndScreen(sr);
+        });
+      }
     }
 
     window.addEventListener('beforeunload', stopCamera);

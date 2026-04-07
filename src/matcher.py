@@ -154,6 +154,8 @@ def match_single_frame(
     # Per-joint comparison
     # ------------------------------------------------------------------
     result: dict = {}
+    joint_scores: dict[str, float] = {}
+    joint_errors: dict[str, float] = {}
     total_weighted_penalty = 0.0
     total_weight = 0.0
 
@@ -202,10 +204,15 @@ def match_single_frame(
             "velocity_status": velocity_status,
         }
 
+        # Per-joint normalised score (0.0–1.0) and raw error for reporting.
+        capped = min(abs_diff, _MAX_PENALTY_PER_JOINT)
+        joint_scores[joint] = round(1.0 - (capped / _MAX_PENALTY_PER_JOINT), 4)
+        joint_errors[joint] = round(abs_diff, 2)
+
         # Accumulate score penalty only for scored (weight > 0) joints.
         weight = joint_weights.get(joint, 0.0)
         if weight > 0:
-            penalty = min(abs_diff, _MAX_PENALTY_PER_JOINT) * weight
+            penalty = capped * weight
             total_weighted_penalty += penalty
             total_weight += weight
 
@@ -240,6 +247,8 @@ def match_single_frame(
         overall_score = 0.0
 
     result["overall_score"] = round(overall_score, 1)
+    result["joint_scores"] = joint_scores
+    result["joint_errors"] = joint_errors
 
     # ------------------------------------------------------------------
     # Symmetry analysis (pose joints only)

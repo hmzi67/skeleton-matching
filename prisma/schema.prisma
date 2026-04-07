@@ -38,6 +38,7 @@ model User {
   sessions            Session[]
   suggestedCategories Category[]
   exerciseReports     ExerciseReport[]
+  exerciseSessions    ExerciseSession[]
 }
 
 model Session {
@@ -87,6 +88,9 @@ model ExerciseReport {
   
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionId       String?
+  session         ExerciseSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   
   exercise        String
   referenceVideoId String
@@ -109,6 +113,43 @@ model ExerciseReport {
   repJointIssues  String   @default("[]")  // JSON array of per-rep joint issue dicts
   
   overallGrade    String   // A, B, C, D, F
-  
+
   createdAt       DateTime @default(now())
+}
+
+model ExerciseSession {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseName  String
+  videoId       String?
+  startedAt     DateTime       @default(now())
+  completedAt   DateTime?
+  completed     Boolean        @default(false)
+
+  setReports    SetReport[]
+  sessionReport SessionReport?
+  exerciseReports ExerciseReport[]
+}
+
+model SetReport {
+  id              String          @id @default(uuid())
+  sessionId       String
+  session         ExerciseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  setNumber       Int
+  overallAccuracy Float
+  grade           String
+  reportJson      Json
+  createdAt       DateTime        @default(now())
+}
+
+model SessionReport {
+  id              String          @id @default(uuid())
+  sessionId       String          @unique
+  session         ExerciseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  overallAccuracy Float
+  grade           String
+  completed       Boolean
+  reportJson      Json
+  createdAt       DateTime        @default(now())
 }

@@ -13,6 +13,7 @@ Provides:
 from __future__ import annotations
 
 from collections import deque
+from typing import Callable
 
 
 class ExerciseStateMachine:
@@ -44,21 +45,42 @@ class ExerciseStateMachine:
         down_threshold: float = 120.0,
         up_threshold: float = 155.0,
         hold_frames: int = 2,
+        reps_per_set: int = 10,
+        on_rep_complete_callback: Callable[[], None] | None = None,
+        on_set_complete_callback: Callable[[], None] | None = None,
     ) -> None:
         self.down_threshold = down_threshold
         self.up_threshold = up_threshold
         self.hold_frames = hold_frames
+        self.reps_per_set = reps_per_set
+
+        self.on_rep_complete_callback = on_rep_complete_callback
+        self.on_set_complete_callback = on_set_complete_callback
 
         self.phase: str = "READY"
         self.rep_count: int = 0
         self.rep_scores: list[float] = []
         self.rep_joint_issues: list[dict[str, int]] = []  # per-rep {joint: bad_frame_count}
 
+        # Per-set / per-rep counters used by the reporting layer.
+        self._set_number: int = 1
+        self._rep_in_set: int = 0
+
         self._down_frame_count: int = 0
         self._current_rep_scores: list[float] = []
         self._current_rep_joint_issues: dict[str, int] = {}
         self._angle_history: deque[float] = deque(maxlen=60)
         self._last_completed_rep: int | None = None  # rep number just completed
+
+    @property
+    def current_rep_number(self) -> int:
+        """1-indexed rep number *within the current set* (next rep to perform)."""
+        return self._rep_in_set + 1
+
+    @property
+    def current_set_number(self) -> int:
+        """1-indexed current set number."""
+        return self._set_number
 
     def update(self, primary_angle: float, frame_score: float = 0.0,
                joint_statuses: dict[str, str] | None = None) -> str:
@@ -124,6 +146,22 @@ class ExerciseStateMachine:
                 self._current_rep_joint_issues = {}
                 self.phase = "READY"
 
+                # ----- Reporting hooks -----
+                self._rep_in_set += 1
+                if self.on_rep_complete_callback is not None:
+                    try:
+                        self.on_rep_complete_callback()
+                    except Exception:
+                        pass
+                if self._rep_in_set >= self.reps_per_set:
+                    if self.on_set_complete_callback is not None:
+                        try:
+                            self.on_set_complete_callback()
+                        except Exception:
+                            pass
+                    self._rep_in_set = 0
+                    self._set_number += 1
+
         return self.phase
 
     @property
@@ -152,3 +190,5 @@ class ExerciseStateMachine:
         self._current_rep_joint_issues = {}
         self._angle_history.clear()
         self._last_completed_rep = None
+        self._set_number = 1
+        self._rep_in_set = 0

@@ -395,7 +395,10 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="detailExercise">Exercise Report</h2>
-        <button class="modal-close" id="detailCloseBtn">&times;</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="detailDownloadBtn" style="padding:8px 14px;background:#2d5e8f;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Download PDF</button>
+          <button class="modal-close" id="detailCloseBtn">&times;</button>
+        </div>
       </div>
       <div class="modal-body">
         <div class="detail-score-section">
@@ -432,6 +435,20 @@
         <div class="detail-chart">
           <div class="detail-chart-title">Score Over Time</div>
           <canvas id="detailScoreChart"></canvas>
+        </div>
+        <div class="detail-issues" id="detailRepScoresSection">
+          <div class="detail-issues-title">Rep Accuracy</div>
+          <div class="issue-list" id="detailRepScoresList"></div>
+        </div>
+        <div class="detail-issues" id="detailRepJointIssuesSection">
+          <div class="detail-issues-title">Per-Rep Joint Issues</div>
+          <div id="detailRepJointIssuesList"></div>
+        </div>
+        <div class="detail-issues" id="detailFullSessionSection">
+          <div class="detail-issues-title">Full Session Breakdown</div>
+          <div id="detailSessionSummaryList"></div>
+          <div id="detailSessionSetsList" style="margin-top:10px;"></div>
+          <div id="detailSessionProblemsList" style="margin-top:10px;"></div>
         </div>
         <div class="detail-issues" id="detailIssuesSection">
           <div class="detail-issues-title">Joint Issues</div>
@@ -548,9 +565,42 @@
       return `${hours}h ${remainMins}m`;
     }
 
+    function toPercent(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return null;
+      return Math.round(numeric <= 1 ? numeric * 100 : numeric);
+    }
+
+    function parseJsonArray(value) {
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          return [];
+        }
+      }
+      return [];
+    }
+
     async function viewReport(reportId) {
-      const report = reports.find(r => r.id === reportId);
+      let report = reports.find(r => r.id === reportId);
       if (!report) return;
+
+      try {
+        const detailRes = await Auth.apiFetch(`/api/reports/${reportId}`);
+        if (detailRes.ok) {
+          const detail = await detailRes.json();
+          report = detail;
+          const idx = reports.findIndex(r => r.id === reportId);
+          if (idx >= 0) {
+            reports[idx] = { ...reports[idx], ...detail };
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load full report detail, using summary payload.', err);
+      }
 
       document.getElementById('detailExercise').textContent = report.exercise.replace(/_/g, ' ');
       document.getElementById('detailDate').textContent = new Date(report.created_at).toLocaleString();
@@ -615,11 +665,192 @@
       // Draw chart
       setTimeout(() => drawDetailScoreChart(report.score_history), 100);
 
+      const repScoresSection = document.getElementById('detailRepScoresSection');
+      const repScoresList = document.getElementById('detailRepScoresList');
+      repScoresList.innerHTML = '';
+      const repScores = parseJsonArray(report.rep_scores);
+      if (!repScores.length) {
+        repScoresSection.style.display = 'none';
+      } else {
+        repScoresSection.style.display = 'block';
+        repScores.forEach((score, idx) => {
+          const numeric = Math.round(Number(score) || 0);
+          const badge = document.createElement('span');
+          badge.className = 'issue-badge joint';
+          badge.textContent = `Rep ${idx + 1}: ${numeric}%`;
+          repScoresList.appendChild(badge);
+        });
+      }
+
+      const repJointSection = document.getElementById('detailRepJointIssuesSection');
+      const repJointList = document.getElementById('detailRepJointIssuesList');
+      repJointList.innerHTML = '';
+      const repJointIssues = parseJsonArray(report.rep_joint_issues);
+
+      if (!repJointIssues.length) {
+        repJointSection.style.display = 'none';
+      } else {
+        const rowHtml = repJointIssues.map((issues, idx) => {
+          const entries = issues && typeof issues === 'object'
+            ? Object.entries(issues).filter(([, count]) => Number(count) > 0)
+            : [];
+          if (!entries.length) {
+            return `
+              <div class="issue-detail">
+                <span class="issue-detail-name">Rep ${idx + 1}</span>
+                <span class="issue-detail-count">No issues</span>
+              </div>
+            `;
+          }
+          const detail = entries
+            .sort((a, b) => Number(b[1]) - Number(a[1]))
+            .slice(0, 4)
+            .map(([joint, count]) => `${formatName(joint)} (${Math.round(Number(count))})`)
+            .join(', ');
+          return `
+            <div class="issue-detail">
+              <span class="issue-detail-name">Rep ${idx + 1}</span>
+              <span class="issue-detail-count">${detail}</span>
+            </div>
+          `;
+        }).join('');
+        repJointSection.style.display = 'block';
+        repJointList.innerHTML = rowHtml;
+      }
+
+      const fullSessionSection = document.getElementById('detailFullSessionSection');
+      const fullSummaryList = document.getElementById('detailSessionSummaryList');
+      const fullSetList = document.getElementById('detailSessionSetsList');
+      const fullProblemList = document.getElementById('detailSessionProblemsList');
+
+      fullSummaryList.innerHTML = '';
+      fullSetList.innerHTML = '';
+      fullProblemList.innerHTML = '';
+
+      const sessionReport = report.session_report && typeof report.session_report === 'object'
+        ? report.session_report
+        : null;
+      const setReports = Array.isArray(report.set_reports) ? report.set_reports : [];
+      const fallbackSessionSets = Array.isArray(sessionReport?.sets)
+        ? sessionReport.sets.map((setItem, index) => ({
+            set_number: Number(setItem?.set) || index + 1,
+            overall_accuracy: setItem?.accuracy,
+            grade: setItem?.grade,
+            reps: []
+          }))
+        : [];
+      const normalizedSetReports = setReports.length ? setReports : fallbackSessionSets;
+      const sessionProblems = Array.isArray(sessionReport?.problem_joints) ? sessionReport.problem_joints : [];
+
+      if (!sessionReport && !normalizedSetReports.length) {
+        fullSessionSection.style.display = 'none';
+      } else {
+        fullSessionSection.style.display = 'block';
+
+        const sessionAccuracy = toPercent(sessionReport?.overall_accuracy);
+        const sessionGrade = sessionReport?.grade || 'N/A';
+        const sessionReps = Number(sessionReport?.total_reps || 0);
+        const sessionCompleted = typeof sessionReport?.completed === 'boolean'
+          ? (sessionReport.completed ? 'Yes' : 'No')
+          : 'Unknown';
+
+        fullSummaryList.innerHTML = `
+          <div class="issue-detail">
+            <span class="issue-detail-name">Session grade</span>
+            <span class="issue-detail-count">${sessionGrade}${sessionAccuracy == null ? '' : ` · ${sessionAccuracy}%`}</span>
+          </div>
+          <div class="issue-detail">
+            <span class="issue-detail-name">Completed</span>
+            <span class="issue-detail-count">${sessionCompleted}</span>
+          </div>
+          <div class="issue-detail">
+            <span class="issue-detail-name">Total reps</span>
+            <span class="issue-detail-count">${sessionReps}</span>
+          </div>
+        `;
+
+        if (!normalizedSetReports.length) {
+          fullSetList.innerHTML = '<div class="issue-detail"><span class="issue-detail-name">Set breakdown</span><span class="issue-detail-count">No set-level data available</span></div>';
+        } else {
+          fullSetList.innerHTML = normalizedSetReports.map((setItem, setIdx) => {
+            const setNo = Number(setItem?.set_number) || Number(setItem?.set) || setIdx + 1;
+            const setAcc = toPercent(setItem?.overall_accuracy ?? setItem?.set_accuracy ?? setItem?.accuracy);
+            const setGrade = setItem?.grade || 'N/A';
+            const reps = Array.isArray(setItem?.reps) ? setItem.reps : [];
+            const repsHtml = reps.length
+              ? `<div class="issue-list" style="margin-top:8px;">${reps
+                  .slice(0, 20)
+                  .map((rep, repIdx) => {
+                    const repNo = Number(rep?.rep) || repIdx + 1;
+                    const repAcc = toPercent(rep?.accuracy ?? rep?.overall_accuracy);
+                    return `<span class="issue-badge joint">Rep ${repNo}: ${repAcc == null ? 'N/A' : repAcc + '%'}</span>`;
+                  })
+                  .join('')}</div>`
+              : '<div class="issue-detail-count" style="margin-top:8px;">No rep-level accuracy stored for this set</div>';
+
+            return `
+              <div style="background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+                <div class="issue-detail" style="margin-bottom:0;">
+                  <span class="issue-detail-name">Set ${setNo}</span>
+                  <span class="issue-detail-count">${setGrade}${setAcc == null ? '' : ` · ${setAcc}%`}</span>
+                </div>
+                ${repsHtml}
+              </div>
+            `;
+          }).join('');
+        }
+
+        if (!sessionProblems.length) {
+          fullProblemList.innerHTML = '<div class="issue-detail"><span class="issue-detail-name">Session problem joints</span><span class="issue-detail-count">No notable session joints detected</span></div>';
+        } else {
+          fullProblemList.innerHTML = sessionProblems.slice(0, 6).map((item) => {
+            const label = item?.label || formatName(item?.joint || '');
+            const severity = item?.severity || 'unknown';
+            const errPct = Number(item?.error_pct);
+            return `
+              <div class="issue-detail">
+                <span class="issue-detail-name">${label}</span>
+                <span class="issue-detail-count">${severity}${Number.isFinite(errPct) ? ` · ${Math.round(errPct)}%` : ''}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      document.getElementById('detailDownloadBtn').onclick = () => downloadReportPdf(report);
+
       document.getElementById('detailModal').classList.add('visible');
     }
 
+    async function downloadReportPdf(report) {
+      try {
+        const res = await Auth.apiFetch(`/api/reports/${report.id}/download`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+
+        const cd = res.headers.get('content-disposition') || '';
+        const fileNameMatch = cd.match(/filename="?([^";]+)"?/i);
+        const stamp = new Date(report.created_at || Date.now()).toISOString().slice(0, 10);
+
+        a.href = url;
+        a.download = fileNameMatch
+          ? fileNameMatch[1]
+          : `report-${(report.exercise || 'exercise').replace(/\s+/g, '_')}-${stamp}-${(report.id || '').slice(0, 8)}.pdf`;
+
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        alert('Failed to download PDF report');
+      }
+    }
+
     function formatName(name) {
-      return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return String(name || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
     function drawDetailScoreChart(scores) {
