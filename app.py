@@ -29,7 +29,13 @@ from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 from flask_cors import CORS
 from src.calibration import calibrate_from_skeleton, compute_adaptive_thresholds
-from src.exercise_weights import get_weights, compute_auto_weights, EXERCISE_WEIGHTS
+from src.exercise_weights import (
+    get_weights,
+    compute_auto_weights,
+    resolve_exercise_name,
+    EXERCISE_WEIGHTS,
+    FEEDBACK_WEIGHT_THRESHOLD,
+)
 from src.extractor import extract_skeleton_from_video, load_skeleton
 from src.feedback import generate_feedback
 from src.filters import LandmarkSmoother, HandLandmarkSmoother
@@ -72,6 +78,10 @@ POSE_CONNECTIONS = [
     [27, 31], [28, 32], [15, 17], [16, 18], [15, 19], [16, 20],
 ]
 
+# Minimum visibility confidence for a landmark to be used in angle computation.
+# Landmarks below this threshold produce unreliable angles that tank the score.
+_VISIBILITY_THRESHOLD = 0.5
+
 _ANGLE_JOINTS = [
     ("left_elbow", 13, 11, 15),
     ("right_elbow", 14, 12, 16),
@@ -91,8 +101,10 @@ _BONE_JOINT_MAP: dict[tuple[int, int], str] = {
     (11, 23): "torso_lean",    (12, 24): "torso_lean",
     (11, 12): "torso_lean",    (23, 24): "torso_lean",
     (27, 31): "left_knee",     (28, 32): "right_knee",
-    (15, 17): "left_elbow",    (16, 18): "right_elbow",
-    (15, 19): "left_elbow",    (16, 20): "right_elbow",
+    (15, 17): "left_hand",     (16, 18): "right_hand",
+    (15, 19): "left_hand",     (16, 20): "right_hand",
+    (15, 21): "left_hand",     (16, 22): "right_hand",
+    (17, 19): "left_hand",     (18, 20): "right_hand",
 }
 
 _JOINT_LANDMARK_IDX: dict[str, int] = {
@@ -241,10 +253,11 @@ class LiveSessionState:
     last_live_angles: dict[str, float] | None = None
     last_live_ts_ms: float | None = None
     idle_frame_count: int = 0
+    target_reps: int | None = None
     temporal_aligner: TemporalAligner = field(default_factory=TemporalAligner)
     phase_machine: ExerciseStateMachine = field(default_factory=ExerciseStateMachine)
     landmark_smoother: LandmarkSmoother = field(
-        default_factory=lambda: LandmarkSmoother(min_cutoff=2.5, beta=0.4),
+        default_factory=lambda: LandmarkSmoother(min_cutoff=1.5, beta=0.15),
     )
     hand_smoother: HandLandmarkSmoother = field(
         default_factory=lambda: HandLandmarkSmoother(min_cutoff=2.0, beta=0.1),
@@ -421,34 +434,54 @@ def _angle(a: dict, b: dict, c: dict) -> float:
     return math.degrees(math.acos(cosv))
 
 
+def _landmarks_visible(landmarks: list[dict], *indices: int) -> bool:
+    """Return True only if ALL listed landmark indices have visibility >= threshold."""
+    for idx in indices:
+        if idx >= len(landmarks):
+            return False
+        vis = landmarks[idx].get("visibility", 0.0)
+        if vis < _VISIBILITY_THRESHOLD:
+            return False
+    return True
+
+
 def _extract_angles(
     landmarks: list[dict],
     hand_landmarks: "dict[str, list[dict] | None] | None" = None,
 ) -> dict[str, float]:
-    """Compute all joint angles from pose (and optionally hand) landmarks."""
+    """Compute joint angles from pose (and optionally hand) landmarks.
+
+    Joints whose constituent landmarks have visibility below
+    ``_VISIBILITY_THRESHOLD`` are skipped entirely so that poorly-detected
+    body parts (e.g. hips/knees when only the upper body is in frame)
+    do not inject garbage angles that tank the score.
+    """
     angles: dict[str, float] = {}
     for name, vertex, a, c in _ANGLE_JOINTS:
-        angles[name] = _angle(landmarks[a], landmarks[vertex], landmarks[c])
+        if _landmarks_visible(landmarks, vertex, a, c):
+            angles[name] = _angle(landmarks[a], landmarks[vertex], landmarks[c])
 
-    hip_center = {
-        "x": (landmarks[23]["x"] + landmarks[24]["x"]) / 2.0,
-        "y": (landmarks[23]["y"] + landmarks[24]["y"]) / 2.0,
-        "z": (landmarks[23]["z"] + landmarks[24]["z"]) / 2.0,
-    }
-    shoulder_center = {
-        "x": (landmarks[11]["x"] + landmarks[12]["x"]) / 2.0,
-        "y": (landmarks[11]["y"] + landmarks[12]["y"]) / 2.0,
-        "z": (landmarks[11]["z"] + landmarks[12]["z"]) / 2.0,
-    }
+    # Torso lean — requires both hips and both shoulders to be visible.
+    if _landmarks_visible(landmarks, 11, 12, 23, 24):
+        hip_center = {
+            "x": (landmarks[23]["x"] + landmarks[24]["x"]) / 2.0,
+            "y": (landmarks[23]["y"] + landmarks[24]["y"]) / 2.0,
+            "z": (landmarks[23]["z"] + landmarks[24]["z"]) / 2.0,
+        }
+        shoulder_center = {
+            "x": (landmarks[11]["x"] + landmarks[12]["x"]) / 2.0,
+            "y": (landmarks[11]["y"] + landmarks[12]["y"]) / 2.0,
+            "z": (landmarks[11]["z"] + landmarks[12]["z"]) / 2.0,
+        }
 
-    spine = _vec(hip_center, shoulder_center)
-    vertical = (0.0, -1.0, 0.0)
-    mag = _norm(spine) * _norm(vertical)
-    if mag < 1e-8:
-        angles["torso_lean"] = 0.0
-    else:
-        cosv = max(-1.0, min(1.0, _dot(spine, vertical) / mag))
-        angles["torso_lean"] = math.degrees(math.acos(cosv))
+        spine = _vec(hip_center, shoulder_center)
+        vertical = (0.0, -1.0, 0.0)
+        mag = _norm(spine) * _norm(vertical)
+        if mag < 1e-8:
+            angles["torso_lean"] = 0.0
+        else:
+            cosv = max(-1.0, min(1.0, _dot(spine, vertical) / mag))
+            angles["torso_lean"] = math.degrees(math.acos(cosv))
 
     # Hand angles — finger curl per detected hand.
     if hand_landmarks:
@@ -534,11 +567,15 @@ def _closest_reference_index(ref_timestamps_ms: list[float], ref_time_ms: float)
 
 
 _CURATED_PRIMARY_ANGLES: dict[str, list[str]] = {
-    "squat":          ["left_knee", "right_knee"],
-    "lunge":          ["left_knee", "right_knee"],
-    "deadlift":       ["left_hip", "right_hip"],
-    "pushup":         ["left_elbow", "right_elbow"],
-    "shoulder_press": ["left_elbow", "right_elbow"],
+    "squat":             ["left_knee", "right_knee"],
+    "lunge":             ["left_knee", "right_knee"],
+    "deadlift":          ["left_hip", "right_hip"],
+    "pushup":            ["left_elbow", "right_elbow"],
+    "shoulder_press":    ["left_elbow", "right_elbow"],
+    "bicep_curl":        ["left_elbow", "right_elbow"],
+    "shoulder_rotation": ["left_shoulder", "right_shoulder"],
+    "wrist_curl":        ["left_hand_middle_curl", "right_hand_middle_curl"],
+    "finger_exercise":   ["left_hand_index_curl", "right_hand_index_curl"],
 }
 
 _SYMMETRY_MAP: dict[str, str] = {
@@ -559,20 +596,44 @@ def _primary_angle_for_exercise(
     Uses curated joint list for known exercises; for unknown exercises
     uses the ROM-derived ``primary_joint`` (averaging with its symmetry
     counterpart when available).
+
+    Skips joints whose live value is ``None`` or ``0.0`` so that a
+    temporarily-undetected hand does not freeze the state machine.
     """
+    def _present(v):
+        return v is not None and abs(v) > 1e-6
+
     curated = _CURATED_PRIMARY_ANGLES.get(exercise.lower())
     if curated:
-        vals = [angles.get(j, 0.0) for j in curated]
-        return sum(vals) / max(len(vals), 1)
+        vals = [angles.get(j) for j in curated]
+        good = [v for v in vals if _present(v)]
+        if good:
+            return sum(good) / len(good)
+        # Nothing detected — fall through so the caller can decide what
+        # to do (we return 0.0 only as an absolute last resort).
 
     if primary_joint:
-        val = angles.get(primary_joint, 0.0)
+        val = angles.get(primary_joint)
         sym = _SYMMETRY_MAP.get(primary_joint)
-        if sym and sym in angles:
-            val = (val + angles[sym]) / 2.0
-        return val
+        sym_val = angles.get(sym) if sym else None
+        if _present(val) and _present(sym_val):
+            return (val + sym_val) / 2.0
+        if _present(val):
+            return val
+        if _present(sym_val):
+            return sym_val
 
-    return (angles.get("left_knee", 0.0) + angles.get("right_knee", 0.0)) / 2.0
+    # Final fallback: average of knees (legacy behaviour for unknown
+    # body exercises).
+    lk = angles.get("left_knee")
+    rk = angles.get("right_knee")
+    if _present(lk) and _present(rk):
+        return (lk + rk) / 2.0
+    if _present(lk):
+        return lk
+    if _present(rk):
+        return rk
+    return 0.0
 
 
 def _state_machine_for_exercise(exercise: str) -> ExerciseStateMachine:
@@ -584,6 +645,14 @@ def _state_machine_for_exercise(exercise: str) -> ExerciseStateMachine:
         return ExerciseStateMachine(down_threshold=95.0, up_threshold=155.0, hold_frames=2)
     if exercise == "shoulder_press":
         return ExerciseStateMachine(down_threshold=90.0, up_threshold=150.0, hold_frames=2)
+    if exercise == "bicep_curl":
+        # Elbow flexed ~50° at top of curl, ~160° when arm extended.
+        return ExerciseStateMachine(down_threshold=70.0, up_threshold=150.0, hold_frames=2)
+    if exercise == "finger_exercise":
+        # Index-finger curl angle: ~60° when closed (fist), ~160° extended.
+        return ExerciseStateMachine(down_threshold=80.0, up_threshold=150.0, hold_frames=2)
+    if exercise == "wrist_curl":
+        return ExerciseStateMachine(down_threshold=80.0, up_threshold=150.0, hold_frames=2)
     return ExerciseStateMachine()
 
 
@@ -608,33 +677,114 @@ def _compute_live_velocities(
     return velocities
 
 
-def _compute_bone_statuses(best_match: dict) -> dict[str, str]:
+# Hand finger-curl joint names per side — used to derive an aggregate hand status.
+_HAND_CURL_JOINTS: dict[str, list[str]] = {
+    "left_hand":  ["left_hand_thumb_curl",  "left_hand_index_curl",  "left_hand_middle_curl",
+                   "left_hand_ring_curl",   "left_hand_pinky_curl"],
+    "right_hand": ["right_hand_thumb_curl", "right_hand_index_curl", "right_hand_middle_curl",
+                   "right_hand_ring_curl",  "right_hand_pinky_curl"],
+}
+_STATUS_RANK = {"good": 0, "warning": 1, "bad": 2}
+
+
+def _aggregate_hand_status(hand_key: str, best_match: dict,
+                           exercise_weights: dict[str, float] | None) -> str:
+    """Return the worst finger-curl status for a hand (left_hand / right_hand)."""
+    curl_joints = _HAND_CURL_JOINTS.get(hand_key, [])
+    relevant = [j for j in curl_joints
+                if exercise_weights is None
+                or exercise_weights.get(j, 0.0) >= FEEDBACK_WEIGHT_THRESHOLD]
+    worst = "good"
+    for j in relevant:
+        if j in best_match and isinstance(best_match[j], dict):
+            s = best_match[j].get("status", "good")
+            if _STATUS_RANK.get(s, 0) > _STATUS_RANK.get(worst, 0):
+                worst = s
+    return worst
+
+
+def _compute_bone_statuses(
+    best_match: dict,
+    exercise_weights: dict[str, float] | None = None,
+) -> dict[str, str]:
     bone_statuses: dict[str, str] = {}
     for bone in POSE_CONNECTIONS:
         key = f"{bone[0]}-{bone[1]}"
         joint_name = _BONE_JOINT_MAP.get((bone[0], bone[1])) or _BONE_JOINT_MAP.get((bone[1], bone[0]))
-        if joint_name and joint_name in best_match and isinstance(best_match[joint_name], dict):
+        # Suppress bones whose underlying joint is irrelevant to the exercise
+        # so the live overlay doesn't draw red outlines on the torso/legs
+        # during a hand exercise.
+        if (joint_name
+                and exercise_weights is not None
+                and exercise_weights.get(joint_name, 0.0) < FEEDBACK_WEIGHT_THRESHOLD):
+            # For hand bones, check the individual curl joints instead of the
+            # aggregate key (which won't be in exercise_weights directly).
+            if joint_name in _HAND_CURL_JOINTS:
+                status = _aggregate_hand_status(joint_name, best_match, exercise_weights)
+                bone_statuses[key] = status
+            else:
+                bone_statuses[key] = "good"
+            continue
+        if joint_name in _HAND_CURL_JOINTS:
+            bone_statuses[key] = _aggregate_hand_status(joint_name, best_match, exercise_weights)
+        elif joint_name and joint_name in best_match and isinstance(best_match[joint_name], dict):
             bone_statuses[key] = best_match[joint_name].get("status", "good")
         else:
             bone_statuses[key] = "good"
     return bone_statuses
 
 
-def _compute_joint_statuses(best_match: dict) -> dict[str, str]:
+_JOINT_STATUS_WEIGHT_THRESHOLD = FEEDBACK_WEIGHT_THRESHOLD  # shared with feedback.py
+
+
+def _compute_joint_statuses(
+    best_match: dict,
+    exercise_weights: dict[str, float] | None = None,
+) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for joint_name in _JOINT_LANDMARK_IDX:
+        # Suppress irrelevant joints — mark as "good" so the frontend never
+        # adds them to jointIssueTracker or lights them up as errors.
+        if (exercise_weights is not None
+                and exercise_weights.get(joint_name, 0.0) < _JOINT_STATUS_WEIGHT_THRESHOLD):
+            statuses[joint_name] = "good"
+            continue
         if joint_name in best_match and isinstance(best_match[joint_name], dict):
             statuses[joint_name] = best_match[joint_name].get("status", "good")
     if "torso_lean" in best_match and isinstance(best_match["torso_lean"], dict):
-        statuses["torso_lean"] = best_match["torso_lean"].get("status", "good")
+        if (exercise_weights is None
+                or exercise_weights.get("torso_lean", 0.0) >= _JOINT_STATUS_WEIGHT_THRESHOLD):
+            statuses["torso_lean"] = best_match["torso_lean"].get("status", "good")
+
+    # Aggregate hand finger-curl statuses into a single per-hand status so the
+    # frontend can colour the wrist/hand landmark red when the hand is wrong.
+    for hand_key, curl_joints in _HAND_CURL_JOINTS.items():
+        relevant = [j for j in curl_joints
+                    if exercise_weights is None
+                    or exercise_weights.get(j, 0.0) >= _JOINT_STATUS_WEIGHT_THRESHOLD]
+        if not relevant:
+            continue
+        worst = "good"
+        for j in relevant:
+            if j in best_match and isinstance(best_match[j], dict):
+                s = best_match[j].get("status", "good")
+                if _STATUS_RANK.get(s, 0) > _STATUS_RANK.get(worst, 0):
+                    worst = s
+        statuses[hand_key] = worst
+
     return statuses
 
 
 def _compute_correction_arrows(
-    best_match: dict, live_landmarks: list[dict],
+    best_match: dict,
+    live_landmarks: list[dict],
+    exercise_weights: dict[str, float] | None = None,
 ) -> list[dict]:
     joint_errors: list[tuple[str, float]] = []
     for joint_name, idx in _JOINT_LANDMARK_IDX.items():
+        if (exercise_weights is not None
+                and exercise_weights.get(joint_name, 0.0) < _JOINT_STATUS_WEIGHT_THRESHOLD):
+            continue  # skip irrelevant joints
         if joint_name in best_match and isinstance(best_match[joint_name], dict):
             data = best_match[joint_name]
             if data.get("status") != "good":
@@ -670,18 +820,28 @@ def _live_session_key(user_id: str, ref_id: str, exercise: str) -> str:
     return f"{user_id}:{ref_id}:{exercise}"
 
 
+_CURATED_STATE_MACHINE_EXERCISES: frozenset[str] = frozenset({
+    "squat", "lunge", "deadlift", "pushup", "shoulder_press",
+    "bicep_curl", "finger_exercise", "wrist_curl",
+})
+
+
 def _build_session_config(
     gt_norm: list[dict], exercise: str,
 ) -> dict:
     """Derive auto-weights, adaptive thresholds, primary joint, and
     phase-machine parameters from the reference video ROM.
 
-    Curated presets override auto-weights for known exercises.
+    Curated presets override auto-weights for known exercises. The
+    exercise name is passed through :func:`resolve_exercise_name` so
+    user/DB variants like ``"hand exercise"`` still hit the curated
+    ``finger_exercise`` preset.
     """
     auto = compute_auto_weights(gt_norm)
+    resolved = resolve_exercise_name(exercise)
 
-    if exercise.lower() in EXERCISE_WEIGHTS and exercise.lower() != "default":
-        weights = get_weights(exercise)
+    if resolved in EXERCISE_WEIGHTS and resolved != "default":
+        weights = get_weights(resolved)
     else:
         weights = auto["weights"]
 
@@ -692,12 +852,32 @@ def _build_session_config(
     primary_min = auto["primary_min"]
     primary_max = auto["primary_max"]
 
+    # If the resolved exercise has a curated primary angle, prefer the
+    # first entry so ROM thresholds below are computed from the joint
+    # the state machine will actually read.
+    curated_primary = _CURATED_PRIMARY_ANGLES.get(resolved)
+    if curated_primary:
+        # Try to find ROM of the curated joint in the reference.
+        rom_min_map: dict[str, float] = {}
+        rom_max_map: dict[str, float] = {}
+        for frame in gt_norm:
+            for j in curated_primary:
+                val = frame.get("angles", {}).get(j)
+                if val is None:
+                    continue
+                rom_min_map[j] = min(rom_min_map.get(j, 360.0), val)
+                rom_max_map[j] = max(rom_max_map.get(j, 0.0), val)
+        if rom_min_map:
+            primary_joint = curated_primary[0]
+            primary_min = min(rom_min_map.values())
+            primary_max = max(rom_max_map.values())
+
     rom_range = primary_max - primary_min
     down_thresh = primary_min + rom_range * 0.20
     up_thresh = primary_max - rom_range * 0.20
 
-    if exercise.lower() in {"squat", "lunge", "deadlift", "pushup", "shoulder_press"}:
-        phase_machine = _state_machine_for_exercise(exercise)
+    if resolved in _CURATED_STATE_MACHINE_EXERCISES:
+        phase_machine = _state_machine_for_exercise(resolved)
     else:
         phase_machine = ExerciseStateMachine(
             down_threshold=down_thresh,
@@ -712,14 +892,25 @@ def _build_session_config(
         "primary_min": primary_min,
         "primary_max": primary_max,
         "phase_machine": phase_machine,
+        "resolved_exercise": resolved,
     }
+
+
+# Bump this constant whenever weight-selection / feedback logic changes so
+# in-memory sessions from a previous app start are discarded instead of
+# silently reusing stale weights.
+LIVE_STATE_VERSION = "2026-04-06-visibility-filtering-v2"
 
 
 def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveSessionState:
     key = _live_session_key(user_id, ref_id, exercise)
     existing = _http_live_states.get(key)
-    if existing is not None:
+    if existing is not None and getattr(existing, "state_version", None) == LIVE_STATE_VERSION:
         return existing
+    if existing is not None:
+        # Stale session from an older weight-logic version — drop it so
+        # the fix takes effect on the very next frame.
+        _http_live_states.pop(key, None)
 
     gt_norm = _load_or_extract_reference_norm(ref_id)
     ref_timestamps_ms = [float(frame.get("timestamp_ms", 0.0)) for frame in gt_norm]
@@ -727,7 +918,7 @@ def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveS
     state = LiveSessionState(
         user_id=user_id,
         ref_video_id=ref_id,
-        exercise=exercise,
+        exercise=cfg.get("resolved_exercise", exercise),
         gt_norm=gt_norm,
         ref_timestamps_ms=ref_timestamps_ms,
         auto_weights=cfg["auto_weights"],
@@ -737,6 +928,7 @@ def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveS
         primary_max=cfg["primary_max"],
         phase_machine=cfg["phase_machine"],
     )
+    state.state_version = LIVE_STATE_VERSION  # type: ignore[attr-defined]
     _http_live_states[key] = state
     return state
 
@@ -862,11 +1054,14 @@ def _process_live_frame_message(
     primary_angle = _primary_angle_for_exercise(
         state.exercise, live_angles, primary_joint=state.primary_joint,
     )
-    phase = state.phase_machine.update(primary_angle, state.smoothed_score)
+    joint_statuses = _compute_joint_statuses(best_match, state.auto_weights)
+    phase = state.phase_machine.update(primary_angle, state.smoothed_score,
+                                       joint_statuses=joint_statuses)
     feedback = generate_feedback(
         summary_stub, best_match,
         exercise=state.exercise,
         phase=phase,
+        exercise_weights=state.auto_weights,
     )
 
     gt_frame = state.gt_norm[best_idx]
@@ -874,9 +1069,9 @@ def _process_live_frame_message(
     display_ref_idx = _closest_reference_index(state.ref_timestamps_ms, ref_time_ms)
     display_ref_frame = state.gt_norm[display_ref_idx]
 
-    joint_statuses = _compute_joint_statuses(best_match)
-    bone_statuses = _compute_bone_statuses(best_match)
-    correction_arrows = _compute_correction_arrows(best_match, live_landmarks)
+    joint_statuses = _compute_joint_statuses(best_match, state.auto_weights)
+    bone_statuses = _compute_bone_statuses(best_match, state.auto_weights)
+    correction_arrows = _compute_correction_arrows(best_match, live_landmarks, state.auto_weights)
 
     joint_fb = feedback.get("joint_feedback", [])
     coaching_text = joint_fb[0]["instruction"] if joint_fb else (
@@ -911,6 +1106,7 @@ def _process_live_frame_message(
         "live_hand_landmarks": live_hand_landmarks,
         "ref_landmarks": display_ref_frame.get("landmarks", []),
         "ref_hand_landmarks": display_ref_frame.get("hand_landmarks", {"left": None, "right": None}),
+        "exercise_weights": state.auto_weights,
         "feedback": {
             "headline": feedback.get("headline", ""),
             "priority_fix": feedback.get("priority_fix", ""),
@@ -920,11 +1116,26 @@ def _process_live_frame_message(
         },
         "phase": phase,
         "rep_count": int(state.phase_machine.rep_count),
+        "rep_scores": state.phase_machine.rep_scores,
+        "rep_joint_issues": state.phase_machine.rep_joint_issues,
         "temporal": {
             "offset_ms": round(offset_ms),
             "status": timing_status,
         },
     }
+
+    # Emit rep_completed when a rep just finished.
+    completed = state.phase_machine._last_completed_rep
+    if completed is not None:
+        payload["rep_completed"] = {
+            "rep_number": completed,
+            "score": state.phase_machine.rep_scores[-1] if state.phase_machine.rep_scores else 0,
+            "joint_issues": state.phase_machine.rep_joint_issues[-1] if state.phase_machine.rep_joint_issues else {},
+        }
+
+    # Emit session_complete when target reps reached.
+    if state.target_reps and state.phase_machine.rep_count >= state.target_reps:
+        payload["session_complete"] = True
     if LIVE_MATCH_DEBUG_TIMINGS:
         payload["timings"] = {
             "decode_ms": round(decode_ms, 2),
@@ -1226,7 +1437,7 @@ def live_match_http(ref_id: str):
     data = request.get_json(silent=True) or {}
     live_frame = data.get("live_frame")
     ref_time_ms = float(data.get("ref_time_ms") or 0.0)
-    exercise = (data.get("exercise") or "default").strip().lower()
+    exercise = resolve_exercise_name(data.get("exercise") or "default")
 
     if not live_frame:
         return jsonify({"error": "live_frame is required"}), 400
@@ -1252,7 +1463,11 @@ if sock is not None:
 
         token = request.args.get("token", "")
         ref_id = request.args.get("ref_id", "")
-        exercise = (request.args.get("exercise") or "default").strip().lower()
+        exercise = resolve_exercise_name(request.args.get("exercise") or "default")
+        try:
+            target_reps = int(request.args.get("target_reps") or 0) or None
+        except (ValueError, TypeError):
+            target_reps = None
 
         auth_payload = _decode_token_and_session(token)
         if not auth_payload:
@@ -1285,6 +1500,7 @@ if sock is not None:
             primary_min=cfg["primary_min"],
             primary_max=cfg["primary_max"],
             phase_machine=cfg["phase_machine"],
+            target_reps=target_reps,
         )
 
         ws.send(json.dumps({
@@ -1292,6 +1508,7 @@ if sock is not None:
             "exercise": exercise,
             "frame_count": len(gt_norm),
             "connections": POSE_CONNECTIONS,
+            "target_reps": target_reps,
         }))
 
         while True:
@@ -1689,6 +1906,8 @@ def create_report():
             "jointIssues": json.dumps(data.get("joint_issues", {})),
             "boneIssues": json.dumps(data.get("bone_issues", {})),
             "feedbackSummary": json.dumps(data.get("feedback_summary", [])),
+            "repScores": json.dumps(data.get("rep_scores", [])),
+            "repJointIssues": json.dumps(data.get("rep_joint_issues", [])),
             "overallGrade": overall_grade,
         }
     )

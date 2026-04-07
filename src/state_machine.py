@@ -52,12 +52,16 @@ class ExerciseStateMachine:
         self.phase: str = "READY"
         self.rep_count: int = 0
         self.rep_scores: list[float] = []
+        self.rep_joint_issues: list[dict[str, int]] = []  # per-rep {joint: bad_frame_count}
 
         self._down_frame_count: int = 0
         self._current_rep_scores: list[float] = []
+        self._current_rep_joint_issues: dict[str, int] = {}
         self._angle_history: deque[float] = deque(maxlen=60)
+        self._last_completed_rep: int | None = None  # rep number just completed
 
-    def update(self, primary_angle: float, frame_score: float = 0.0) -> str:
+    def update(self, primary_angle: float, frame_score: float = 0.0,
+               joint_statuses: dict[str, str] | None = None) -> str:
         """Update the state machine with a new angle reading.
 
         Parameters
@@ -66,6 +70,8 @@ class ExerciseStateMachine:
             The primary joint angle for this exercise (e.g. avg knee angle).
         frame_score : float
             The matching score for this frame (used to compute per-rep score).
+        joint_statuses : dict, optional
+            {joint_name: "good"|"warning"|"bad"} for the current frame.
 
         Returns
         -------
@@ -74,6 +80,15 @@ class ExerciseStateMachine:
         """
         self._angle_history.append(primary_angle)
         self._current_rep_scores.append(frame_score)
+        self._last_completed_rep = None
+
+        # Accumulate joint issues for the current rep.
+        if joint_statuses:
+            for joint, status in joint_statuses.items():
+                if status in ("warning", "bad"):
+                    self._current_rep_joint_issues[joint] = (
+                        self._current_rep_joint_issues.get(joint, 0) + 1
+                    )
 
         h = self._HYSTERESIS
 
@@ -82,6 +97,7 @@ class ExerciseStateMachine:
                 self.phase = "DOWN"
                 self._down_frame_count = 1
                 self._current_rep_scores = [frame_score]
+                self._current_rep_joint_issues = {}
 
         elif self.phase == "DOWN":
             if primary_angle < self.down_threshold + h:
@@ -99,10 +115,13 @@ class ExerciseStateMachine:
         elif self.phase == "UP":
             if primary_angle > self.up_threshold - h:
                 self.rep_count += 1
+                self._last_completed_rep = self.rep_count
                 if self._current_rep_scores:
                     avg = sum(self._current_rep_scores) / len(self._current_rep_scores)
-                    self.rep_scores.append(avg)
+                    self.rep_scores.append(round(avg, 1))
+                self.rep_joint_issues.append(dict(self._current_rep_joint_issues))
                 self._current_rep_scores = []
+                self._current_rep_joint_issues = {}
                 self.phase = "READY"
 
         return self.phase
@@ -127,6 +146,9 @@ class ExerciseStateMachine:
         self.phase = "READY"
         self.rep_count = 0
         self.rep_scores = []
+        self.rep_joint_issues = []
         self._down_frame_count = 0
         self._current_rep_scores = []
+        self._current_rep_joint_issues = {}
         self._angle_history.clear()
+        self._last_completed_rep = None

@@ -105,6 +105,8 @@ model ExerciseReport {
   jointIssues     String   // JSON object tracking problematic joints
   boneIssues      String   // JSON object tracking problematic bones
   feedbackSummary String   // JSON array of feedback items given
+  repScores       String   @default("[]")  // JSON array of per-rep avg scores
+  repJointIssues  String   @default("[]")  // JSON array of per-rep joint issue dicts
   
   overallGrade    String   // A, B, C, D, F
   

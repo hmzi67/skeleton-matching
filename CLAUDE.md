@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install dependencies (Python 3.12 required, macOS only)
+# Install dependencies (Python 3.12 required; pyproject.toml targets macOS only)
 uv sync
 
 # Run Flask backend
@@ -20,7 +20,8 @@ uv run python main.py --gt data/ground_truth/squat.mp4 --live
 # CLI: extract skeleton only (saves JSON alongside video)
 uv run python main.py --extract-only data/ground_truth/squat.mp4
 
-# Database migrations (Prisma)
+# Database migrations (Prisma) — requires Node.js (package.json has the prisma npm package)
+npm install          # once, to get the prisma CLI
 uv run prisma migrate dev
 uv run prisma generate
 ```
@@ -69,10 +70,15 @@ POSE_MODEL_TIER=lite   # optional: lite | full | heavy
 
 MediaPipe `.task` files must exist in `models/`:
 - `models/pose_landmarker_lite.task`
+- `models/pose_landmarker_full.task`
 - `models/pose_landmarker_heavy.task`
 
-These are not in the repo; download from the MediaPipe model card.
+Currently only `lite` and `heavy` are present in the repo. All three are available from the MediaPipe model card. `full` falls back gracefully if missing.
 
 ### Frontend
 
 Plain HTML/CSS/JS in `frontend/`. `auth.js` handles JWT storage and redirect logic shared across pages. No build step.
+
+### Dataset
+
+`dataset/ground_truth/fit3d_test/` contains FIT3D benchmark data (camera parameters + keypoints) used for evaluation/research. Not required for normal operation.

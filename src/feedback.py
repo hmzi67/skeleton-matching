@@ -24,6 +24,9 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+# Joints with weight below this threshold are never shown in feedback/reports.
+_FEEDBACK_WEIGHT_THRESHOLD = 0.05
+
 
 # ---------------------------------------------------------------------------
 # Grade thresholds
@@ -359,6 +362,7 @@ def generate_feedback(
     *,
     exercise: str = "",
     phase: str = "",
+    exercise_weights: dict[str, float] | None = None,
 ) -> dict:
     """Generate coaching feedback for the current frame.
 
@@ -390,6 +394,9 @@ def generate_feedback(
         if not isinstance(data, dict) or "status" not in data:
             continue
         if joint in ("symmetry",):
+            continue
+        # Skip joints that are not meaningful for this exercise.
+        if exercise_weights is not None and exercise_weights.get(joint, 0.0) < _FEEDBACK_WEIGHT_THRESHOLD:
             continue
 
         status   = data.get("status", "good")
@@ -493,6 +500,7 @@ def generate_session_report(
     summary: dict,
     *,
     exercise: str = "default",
+    exercise_weights: dict[str, float] | None = None,
 ) -> str:
     """Produce a plain-text session report and save to ``output/``.
 
@@ -511,11 +519,19 @@ def generate_session_report(
     now   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     score = summary.get("overall_score", 0)
     grade = _grade(score)
-    best  = summary.get("best_joint",  "—")
-    worst = summary.get("worst_joint", "—")
     per_joint  = summary.get("per_joint_avg_error", {})
-    best_err   = per_joint.get(best,  0)
-    worst_err  = per_joint.get(worst, 0)
+
+    # Filter to only joints relevant to this exercise.
+    if exercise_weights is not None:
+        per_joint = {
+            j: e for j, e in per_joint.items()
+            if exercise_weights.get(j, 0.0) >= _FEEDBACK_WEIGHT_THRESHOLD
+        }
+
+    best  = min(per_joint, key=per_joint.get) if per_joint else "—"  # type: ignore[arg-type]
+    worst = max(per_joint, key=per_joint.get) if per_joint else "—"  # type: ignore[arg-type]
+    best_err  = per_joint.get(best,  0) if isinstance(best, str) and best != "—" else 0
+    worst_err = per_joint.get(worst, 0) if isinstance(worst, str) and worst != "—" else 0
 
     lines = [
         f"Session Report — {now}",

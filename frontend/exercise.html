@@ -777,6 +777,13 @@
     let boneIssueTracker = {};    // {boneName: count}
     let feedbackTracker = {};     // {feedback: count}
     let currentRepCount = 0;
+    let exerciseWeights = null;   // {jointName: weight} — from backend
+    const WEIGHT_THRESHOLD = 0.05;
+
+    // Per-rep tracking
+    let repData = [];             // [{rep, score, jointIssues}] — one entry per completed rep
+    let targetReps = 10;          // default; overridden by backend "ready" message
+    let sessionCompleteHandled = false;
 
     // MediaPipe connections for skeleton drawing
     const POSE_CONNECTIONS = [
@@ -1317,26 +1324,19 @@
 
       // Track session data for report
       if (sessionActive) {
-        // Track phase changes
-        if (data.phase) {
-          phaseHistory.push(data.phase);
-        }
-        
-        // Track rep count
-        if (data.rep_count !== undefined) {
-          currentRepCount = data.rep_count;
-        }
-        
-        // Track joint issues (joints with bad status)
+        if (data.phase) phaseHistory.push(data.phase);
+        if (data.rep_count !== undefined) currentRepCount = data.rep_count;
+        if (data.exercise_weights) exerciseWeights = data.exercise_weights;
+
+        // Accumulate joint issues (session-level, weight-filtered)
         if (data.joint_statuses) {
           for (const [joint, status] of Object.entries(data.joint_statuses)) {
             if (status === 'bad' || status === 'warning') {
+              if (exerciseWeights && (exerciseWeights[joint] || 0) < WEIGHT_THRESHOLD) continue;
               jointIssueTracker[joint] = (jointIssueTracker[joint] || 0) + 1;
             }
           }
         }
-        
-        // Track bone issues
         if (data.bone_statuses) {
           for (const [bone, status] of Object.entries(data.bone_statuses)) {
             if (status === 'bad' || status === 'warning') {
@@ -1344,19 +1344,50 @@
             }
           }
         }
-        
-        // Track coaching feedback
-        if (data.coaching_text && data.coaching_text !== 'Great form!' && data.coaching_text !== 'Keep it up!' && data.coaching_text !== 'Start following the reference exercise') {
-          feedbackTracker[data.coaching_text] = (feedbackTracker[data.coaching_text] || 0) + 1;
+
+        // Coaching feedback tracking (filter irrelevant body parts)
+        const skip = ['Great form!', 'Keep it up!', 'Start following the reference exercise'];
+        const irrelevant = _irrelevantParts();
+        const _track = t => {
+          if (!t || skip.includes(t)) return;
+          if (irrelevant.some(p => t.toLowerCase().includes(p))) return;
+          feedbackTracker[t] = (feedbackTracker[t] || 0) + 1;
+        };
+        _track(data.coaching_text);
+        (data.feedback?.top_joint_feedback || []).forEach(jf => _track(jf?.instruction));
+
+        // Per-rep event from backend
+        if (data.rep_completed) {
+          const rc = data.rep_completed;
+          repData.push({ rep: rc.rep_number, score: rc.score, jointIssues: rc.joint_issues || {} });
+          updateRepChip();
         }
-        if (data.feedback && data.feedback.top_joint_feedback) {
-          for (const jf of data.feedback.top_joint_feedback) {
-            if (jf && jf.instruction) {
-              feedbackTracker[jf.instruction] = (feedbackTracker[jf.instruction] || 0) + 1;
-            }
-          }
+
+        // Auto-stop when target reps reached
+        if (data.session_complete && !sessionCompleteHandled) {
+          sessionCompleteHandled = true;
+          showCoachingText(`${targetReps} reps done! Great work!`);
+          setTimeout(() => stopCamera(), 800);
         }
       }
+    }
+
+    function _irrelevantParts() {
+      if (!exerciseWeights) return [];
+      const parts = [];
+      for (const part of ['hip', 'knee', 'torso', 'elbow', 'shoulder']) {
+        if (part === 'torso') {
+          if ((exerciseWeights['torso_lean'] || 0) < WEIGHT_THRESHOLD) parts.push('torso');
+        } else if ((exerciseWeights[`left_${part}`] || 0) < WEIGHT_THRESHOLD &&
+                   (exerciseWeights[`right_${part}`] || 0) < WEIGHT_THRESHOLD) {
+          parts.push(part);
+        }
+      }
+      return parts;
+    }
+
+    function updateRepChip() {
+      repChip.textContent = `Reps: ${currentRepCount}${targetReps ? ' / ' + targetReps : ''}`;
     }
 
     function processNoResult() {
@@ -1452,12 +1483,14 @@
       boneIssueTracker = {};
       feedbackTracker = {};
       currentRepCount = 0;
+      repData = [];
+      sessionCompleteHandled = false;
 
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
       const token = encodeURIComponent(Auth.getToken() || '');
       const ref = encodeURIComponent(refId || '');
       const ex = encodeURIComponent(exercise || 'default');
-      const wsUrl = `${protocol}://${location.host}/ws/live-match?token=${token}&ref_id=${ref}&exercise=${ex}`;
+      const wsUrl = `${protocol}://${location.host}/ws/live-match?token=${token}&ref_id=${ref}&exercise=${ex}&target_reps=${targetReps}`;
 
       ws = new WebSocket(wsUrl);
 
@@ -1473,6 +1506,12 @@
       ws.onmessage = event => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === 'ready') {
+            // Backend confirmed session; capture target_reps if provided
+            if (data.target_reps) targetReps = data.target_reps;
+            updateRepChip();
+            return;
+          }
           if (data.type === 'frame_result') {
             frameInFlight = Math.max(0, frameInFlight - 1);
             processFrameResult(data);

@@ -214,9 +214,30 @@ def match_single_frame(
     # ------------------------------------------------------------------
     max_angle_penalty = total_weight * _MAX_PENALTY_PER_JOINT
     if max_angle_penalty > 0:
-        overall_score = max(0.0, 100.0 * (1.0 - total_weighted_penalty / max_angle_penalty))
+        raw_score = max(0.0, 100.0 * (1.0 - total_weighted_penalty / max_angle_penalty))
+
+        # Coverage penalty: if only a fraction of the expected joints were
+        # actually scored, scale the score down proportionally. This prevents
+        # a 100% score when most joints are undetected (e.g. user too close
+        # to camera so hand landmarks are missing for a hand exercise).
+        if exercise_weights is not None:
+            expected_joints = [j for j in ALL_JOINT_NAMES
+                               if exercise_weights.get(j, 0.0) > 0]
+        else:
+            # No explicit weights — only pose joints are expected.
+            expected_joints = list(_JOINT_NAMES)
+        if expected_joints:
+            coverage = len(scored_joints) / len(expected_joints)
+            # Apply a soft penalty: score × coverage^0.5 so partial detection
+            # still gives partial credit rather than a cliff-edge drop.
+            raw_score *= (coverage ** 0.5)
+
+        overall_score = raw_score
     else:
-        overall_score = 100.0
+        # No joints were scored (e.g. hand landmarks not detected for a hand
+        # exercise). Return 0 rather than a perfect score — the user has not
+        # demonstrated any correct form yet.
+        overall_score = 0.0
 
     result["overall_score"] = round(overall_score, 1)
 
@@ -251,15 +272,29 @@ def match_single_frame(
 # ---------------------------------------------------------------------------
 
 
-def _angle_vector(frame: dict) -> np.ndarray:
-    """Extract the angle feature vector from a normalised frame.
+def _angle_vector(
+    frame: dict,
+    weights: dict[str, float] | None = None,
+) -> np.ndarray:
+    """Extract the (optionally weighted) angle feature vector from a frame.
 
-    Includes all joints that have values (pose + hand when available).
-    Missing joints default to 0.0 so vectors from different frames are
-    always the same length.
+    When *weights* is supplied each dimension is scaled by ``sqrt(weight)``
+    so that DTW path optimisation is driven by the joints that matter most
+    for the current exercise. Irrelevant joints (weight ≈ 0) contribute
+    almost nothing to the distance, keeping alignment exercise-aware.
+
+    Missing joints default to 0.0 so vectors are always the same length.
     """
     angles = frame.get("angles", {})
-    return np.array([angles.get(j, 0.0) for j in ALL_JOINT_NAMES], dtype=np.float64)
+    n = len(ALL_JOINT_NAMES)
+    result = np.zeros(n, dtype=np.float64)
+    for i, j in enumerate(ALL_JOINT_NAMES):
+        val = angles.get(j, 0.0)
+        if weights is not None:
+            # Scale by sqrt(w * n) so total energy is preserved on average.
+            val *= (weights.get(j, 0.0) * n) ** 0.5
+        result[i] = val
+    return result
 
 
 def match_video_sequence(
@@ -294,10 +329,10 @@ def match_video_sequence(
         additional keys ``gt_frame_index`` and ``user_frame_index``.
     """
     gt_vecs  = np.ascontiguousarray(
-        [_angle_vector(f) for f in gt_skeleton],  dtype=np.double
+        [_angle_vector(f, exercise_weights) for f in gt_skeleton],  dtype=np.double
     )
     user_vecs = np.ascontiguousarray(
-        [_angle_vector(f) for f in user_skeleton], dtype=np.double
+        [_angle_vector(f, exercise_weights) for f in user_skeleton], dtype=np.double
     )
 
     path = dtw_ndim.warping_path(gt_vecs, user_vecs)
