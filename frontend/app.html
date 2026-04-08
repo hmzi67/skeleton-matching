@@ -1012,6 +1012,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
       border-radius: 8px;
       font-size: 0.85rem;
       color: #525252;
@@ -1046,6 +1047,58 @@
     .calendar-day.has-activity.excellent {
       background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
       color: #0f0f0f;
+    }
+
+    .calendar-day.has-reminder {
+      box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.55);
+    }
+
+    .calendar-day .reminder-dot {
+      position: absolute;
+      bottom: 7px;
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #2dd4bf;
+      box-shadow: 0 0 8px rgba(45, 212, 191, 0.65);
+    }
+
+    .calendar-day.has-reminder[data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      transform: translateX(-50%);
+      background: #0f0f12;
+      color: #e5e5e5;
+      border: 1px solid #2dd4bf;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      line-height: 1.35;
+      white-space: nowrap;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+      z-index: 20;
+      pointer-events: none;
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .calendar-day.has-reminder[data-tooltip]:hover::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 2px);
+      transform: translateX(-50%);
+      width: 8px;
+      height: 8px;
+      background: #0f0f12;
+      border-right: 1px solid #2dd4bf;
+      border-bottom: 1px solid #2dd4bf;
+      rotate: 45deg;
+      z-index: 19;
+      pointer-events: none;
     }
 
     /* Mobile Overlay */
@@ -1270,6 +1323,7 @@
         <!-- Overview Section -->
         <section class="section active" id="section-overview">
           <div class="stats-grid" id="overviewStats"></div>
+          <div id="overviewReminder"></div>
           <div class="charts-grid">
             <div class="chart-card">
               <div class="chart-header">
@@ -1467,6 +1521,26 @@
             </div>
           </div>
 
+          <div class="data-card" style="margin-bottom:24px;">
+            <div class="data-header">
+              <div class="data-title">Exercise Reminders</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+              <div>
+                <label style="display:block;font-size:.82rem;color:#a3a3a3;margin-bottom:6px;">Exercise</label>
+                <select id="reminderExerciseInput" style="width:100%;padding:10px 12px;background:#121212;border:1px solid #2a2a2a;border-radius:8px;color:#e5e5e5;">
+                  <option value="">Loading exercises...</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block;font-size:.82rem;color:#a3a3a3;margin-bottom:6px;">Date & Time</label>
+                <input id="reminderDatetimeInput" type="datetime-local" style="width:100%;padding:10px 12px;background:#121212;border:1px solid #2a2a2a;border-radius:8px;color:#e5e5e5;" />
+              </div>
+              <button class="action-btn primary" onclick="createExerciseReminder()">Set Reminder</button>
+            </div>
+            <div id="profileReminderList" style="margin-top:14px;"></div>
+          </div>
+
           <div class="charts-grid">
             <div class="chart-card">
               <div class="chart-header">
@@ -1613,6 +1687,22 @@
     </div>
   </div>
 
+  <div id="reminderModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10000;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px);">
+    <div style="width:100%;max-width:560px;background:linear-gradient(145deg,#19191f 0%,#121217 100%);border:1px solid rgba(45,212,191,.35);border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.55);color:#e5e5e5;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;">
+        <div>
+          <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#2dd4bf;font-weight:700;">Reminder</div>
+          <h2 id="reminderModalTitle" style="margin:6px 0 0;font-size:24px;line-height:1.2;">Exercise reminder</h2>
+        </div>
+        <button onclick="dismissReminderModal()" style="background:#22242b;border:1px solid #2f313a;color:#e5e5e5;border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:18px;">×</button>
+      </div>
+      <div id="reminderModalBody" style="display:flex;flex-direction:column;gap:10px;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;">
+        <button onclick="dismissReminderModal()" class="action-btn secondary">Later</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/auth.js"></script>
   <script>
     Auth.guard();
@@ -1647,6 +1737,235 @@
     let dashboardUploadPreviewUrl = '';
     let dashboardUploadHandlersBound = false;
     let dashboardUploadCategoriesLoaded = false;
+    let exerciseReminders = [];
+    let exerciseCatalogCache = null;
+    let reminderAlertTimer = null;
+    let alertedReminderIds = new Set();
+
+    function reminderStorageKey() {
+      return `pose_matcher_reminders_${user.id || user.username}`;
+    }
+
+    function reminderAlertStorageKey() {
+      return `pose_matcher_reminder_alerts_${user.id || user.username}`;
+    }
+
+    function normalizeExerciseName(value) {
+      return String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function getExerciseCatalogItem(exerciseName) {
+      const normalized = normalizeExerciseName(exerciseName);
+      if (!normalized || !Array.isArray(exerciseCatalogCache)) return null;
+      return exerciseCatalogCache.find(item => normalizeExerciseName(item.exercise) === normalized) || null;
+    }
+
+    async function loadExerciseCatalog() {
+      if (Array.isArray(exerciseCatalogCache)) return exerciseCatalogCache;
+      try {
+        const res = await Auth.apiFetch('/api/exercises');
+        exerciseCatalogCache = res.ok ? await res.json() : [];
+      } catch {
+        exerciseCatalogCache = [];
+      }
+      return exerciseCatalogCache;
+    }
+
+    function getValidReminderDisplayName(exerciseName) {
+      const item = getExerciseCatalogItem(exerciseName);
+      return item ? String(item.exercise || '').replace(/_/g, ' ') : '';
+    }
+
+    async function loadExerciseReminders() {
+      try {
+        const res = await Auth.apiFetch('/api/reminders');
+        if (!res.ok) {
+          exerciseReminders = [];
+          return;
+        }
+        const parsed = await res.json();
+        exerciseReminders = Array.isArray(parsed)
+          ? parsed
+              .filter(item => item && item.id && item.exercise && item.remind_at)
+              .map(item => ({
+                id: String(item.id),
+                exercise: normalizeExerciseName(item.exercise),
+                remind_at: String(item.remind_at),
+                video_id: item.video_id || null,
+              }))
+              .filter(item => getExerciseCatalogItem(item.exercise))
+              .sort((a, b) => new Date(a.remind_at) - new Date(b.remind_at))
+          : [];
+      } catch {
+        exerciseReminders = [];
+      }
+
+      const validIds = new Set(exerciseReminders.map(item => item.id));
+      alertedReminderIds = new Set([...alertedReminderIds].filter(id => validIds.has(id)));
+      saveReminderAlertState();
+    }
+
+    function loadReminderAlertState() {
+      try {
+        const raw = localStorage.getItem(reminderAlertStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) {
+          alertedReminderIds = new Set();
+          return;
+        }
+        alertedReminderIds = new Set(parsed.map(v => String(v)));
+      } catch {
+        alertedReminderIds = new Set();
+      }
+    }
+
+    function saveReminderAlertState() {
+      try {
+        localStorage.setItem(reminderAlertStorageKey(), JSON.stringify([...alertedReminderIds]));
+      } catch {}
+    }
+
+    function checkReminderOneHourAlerts() {
+      const now = Date.now();
+      let changed = false;
+      const dueReminders = [];
+
+      for (const reminder of exerciseReminders) {
+        if (alertedReminderIds.has(reminder.id)) continue;
+        const remindAtMs = new Date(reminder.remind_at).getTime();
+        if (!Number.isFinite(remindAtMs) || !getExerciseCatalogItem(reminder.exercise)) continue;
+
+        const diff = remindAtMs - now;
+        if (diff <= 60 * 60 * 1000 && diff > 0) {
+          alertedReminderIds.add(reminder.id);
+          changed = true;
+          dueReminders.push(reminder);
+        }
+      }
+
+      if (changed) saveReminderAlertState();
+      if (dueReminders.length > 0) showReminderModal(dueReminders);
+    }
+
+    function startReminderAlertTimer() {
+      if (reminderAlertTimer) {
+        clearInterval(reminderAlertTimer);
+      }
+      checkReminderOneHourAlerts();
+      reminderAlertTimer = setInterval(checkReminderOneHourAlerts, 60 * 1000);
+    }
+
+    function formatReminderDateTime(isoValue) {
+      const dt = new Date(isoValue);
+      if (Number.isNaN(dt.getTime())) return 'Invalid time';
+      return dt.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+
+    function getUpcomingReminder() {
+      const now = Date.now();
+      return exerciseReminders.find(r => {
+        const ts = new Date(r.remind_at).getTime();
+        return Number.isFinite(ts) && ts >= now && getExerciseCatalogItem(r.exercise);
+      }) || null;
+    }
+
+    function getExerciseOptions() {
+      if (!Array.isArray(exerciseCatalogCache)) return [];
+      return exerciseCatalogCache
+        .filter(item => item && item.exercise && item.video_id)
+        .map(item => ({
+          value: normalizeExerciseName(item.exercise),
+          label: String(item.exercise || '').replace(/_/g, ' '),
+        }))
+        .filter(item => item.value)
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    function refreshReminderExerciseOptions() {
+      const list = document.getElementById('reminderExerciseInput');
+      if (!list) return;
+      const options = getExerciseOptions();
+      const currentValue = list.value;
+      list.innerHTML = options.length
+        ? `<option value="">Select an exercise</option>${options.map(ex => `<option value="${ex.value}">${ex.label}</option>`).join('')}`
+        : '<option value="">No approved exercises available</option>';
+      if (options.some(ex => ex.value === currentValue)) {
+        list.value = currentValue;
+      }
+    }
+
+    async function resolveExerciseStartLink(exerciseName) {
+      const normalized = normalizeExerciseName(exerciseName);
+      if (!normalized) return '/';
+
+      if (!exerciseCatalogCache) {
+        try {
+          const res = await Auth.apiFetch('/api/exercises');
+          if (res.ok) {
+            exerciseCatalogCache = await res.json();
+          } else {
+            exerciseCatalogCache = [];
+          }
+        } catch {
+          exerciseCatalogCache = [];
+        }
+      }
+
+      const match = getExerciseCatalogItem(normalized);
+
+      if (match && match.video_id) {
+        return `/exercise?exercise=${encodeURIComponent(match.exercise)}&ref=${encodeURIComponent(match.video_id)}`;
+      }
+
+      return '/';
+    }
+
+    function showReminderModal(reminders) {
+      const modal = document.getElementById('reminderModal');
+      const title = document.getElementById('reminderModalTitle');
+      const body = document.getElementById('reminderModalBody');
+      if (!modal || !title || !body) return;
+
+      const list = Array.isArray(reminders) ? reminders.filter(Boolean) : [];
+      if (list.length === 0) return;
+
+      title.textContent = list.length === 1 ? 'Time to train' : 'Upcoming exercises';
+      body.innerHTML = list.map(reminder => {
+        const label = getValidReminderDisplayName(reminder.exercise) || reminder.exercise.replace(/_/g, ' ');
+        const timeLabel = formatReminderDateTime(reminder.remind_at);
+        return `
+          <button type="button" onclick="startReminderExercise('${reminder.id}')" style="text-align:left;width:100%;padding:14px 16px;border-radius:14px;border:1px solid rgba(45,212,191,.25);background:#101218;color:#e5e5e5;cursor:pointer;transition:all .2s;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+              <div>
+                <div style="font-size:1.05rem;font-weight:800;text-transform:capitalize;">${label}</div>
+                <div style="font-size:.88rem;opacity:.74;margin-top:3px;">${timeLabel}</div>
+              </div>
+              <div style="padding:8px 12px;border-radius:999px;background:rgba(45,212,191,.14);color:#2dd4bf;font-weight:700;font-size:.82rem;">Start</div>
+            </div>
+          </button>
+        `;
+      }).join('');
+
+      modal.style.display = 'flex';
+    }
+
+    function dismissReminderModal() {
+      const modal = document.getElementById('reminderModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function startReminderExercise(reminderId) {
+      const reminder = exerciseReminders.find(item => item.id === reminderId);
+      if (!reminder) return;
+      const link = await resolveExerciseStartLink(reminder.exercise);
+      dismissReminderModal();
+      window.location.href = link;
+    }
 
     // Sidebar toggle
     function toggleSidebar() {
@@ -1906,6 +2225,11 @@
     // Load initial data
     async function loadDashboard() {
       try {
+        await loadExerciseCatalog();
+        await loadExerciseReminders();
+        loadReminderAlertState();
+        startReminderAlertTimer();
+
         // Load user profile
         const userRes = await Auth.apiFetch('/api/me');
         if (userRes.ok) {
@@ -1987,6 +2311,8 @@
         </div>
       `;
 
+      renderOverviewReminder();
+
       // Performance circle
       document.getElementById('avgScoreValue').textContent = avgScore || '--';
       drawPerformanceCircle(avgScore);
@@ -2006,6 +2332,31 @@
 
       // Recent activity
       renderRecentActivity();
+    }
+
+    function renderOverviewReminder() {
+      const container = document.getElementById('overviewReminder');
+      if (!container) return;
+
+      const upcoming = getUpcomingReminder();
+      if (!upcoming) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const exerciseLabel = upcoming.exercise.replace(/_/g, ' ');
+      container.innerHTML = `
+        <div class="data-card" style="cursor:pointer;border-color:rgba(45,212,191,0.35);" onclick="openReminder('${upcoming.id}')">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:12px;opacity:.65;text-transform:uppercase;letter-spacing:.08em;">Upcoming Reminder</div>
+              <div style="font-size:1.05rem;font-weight:700;margin-top:4px;">${exerciseLabel} at ${formatReminderDateTime(upcoming.remind_at)}</div>
+              <div style="font-size:.9rem;opacity:.7;margin-top:4px;">Tap to start this exercise.</div>
+            </div>
+            <button class="action-btn primary" style="pointer-events:none;">Start</button>
+          </div>
+        </div>
+      `;
     }
 
     function calculateStreak() {
@@ -2271,6 +2622,129 @@
     function loadProfileSection() {
       renderCalendar();
       renderExerciseBreakdown();
+      renderReminderManager();
+    }
+
+    function renderReminderManager() {
+      refreshReminderExerciseOptions();
+      const list = document.getElementById('profileReminderList');
+      if (!list) return;
+
+      const visibleReminders = exerciseReminders.filter(item => getExerciseCatalogItem(item.exercise));
+
+      if (visibleReminders.length === 0) {
+        list.innerHTML = '<div class="empty-state">No reminders set yet.</div>';
+        return;
+      }
+
+      list.innerHTML = visibleReminders.map(item => {
+        const label = getValidReminderDisplayName(item.exercise) || item.exercise.replace(/_/g, ' ');
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid #23232b;border-radius:9px;background:#101015;margin-bottom:8px;">
+            <div>
+              <div style="font-weight:700;text-transform:capitalize;">${label}</div>
+              <div style="font-size:.85rem;color:#a3a3a3;">${formatReminderDateTime(item.remind_at)}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="action-btn secondary" onclick="openReminder('${item.id}')">Start</button>
+              <button class="action-btn danger" onclick="deleteExerciseReminder('${item.id}')">Delete</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function createExerciseReminder() {
+      const exerciseInput = document.getElementById('reminderExerciseInput');
+      const datetimeInput = document.getElementById('reminderDatetimeInput');
+      if (!exerciseInput || !datetimeInput) return;
+
+      const exercise = normalizeExerciseName(exerciseInput.value);
+      const remindAt = datetimeInput.value ? new Date(datetimeInput.value) : null;
+
+      if (!exercise) {
+        alert('Please select an exercise from the list.');
+        return;
+      }
+      if (!remindAt || Number.isNaN(remindAt.getTime())) {
+        alert('Please select a valid reminder date and time.');
+        return;
+      }
+      if (remindAt.getTime() <= Date.now()) {
+        alert('Please choose a future time for the reminder.');
+        return;
+      }
+
+      let created = null;
+      try {
+        const res = await Auth.apiFetch('/api/reminders', {
+          method: 'POST',
+          body: JSON.stringify({
+            exercise,
+            remind_at: remindAt.toISOString(),
+          }),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          if (payload.error === 'reminders_unavailable') {
+            alert('Reminders are temporarily unavailable. Please run the latest database migration and try again.');
+            return;
+          }
+          alert(payload.error || 'Failed to save reminder.');
+          return;
+        }
+        created = await res.json();
+      } catch {
+        alert('Failed to save reminder.');
+        return;
+      }
+
+      exerciseReminders.push({
+        id: String(created.id),
+        exercise: normalizeExerciseName(created.exercise),
+        remind_at: String(created.remind_at),
+        video_id: created.video_id || null,
+      });
+      exerciseReminders.sort((a, b) => new Date(a.remind_at) - new Date(b.remind_at));
+      alertedReminderIds.delete(String(created.id));
+      saveReminderAlertState();
+
+      exerciseInput.value = '';
+      datetimeInput.value = '';
+
+      renderReminderManager();
+      renderOverviewReminder();
+      renderCalendar();
+      checkReminderOneHourAlerts();
+    }
+
+    async function deleteExerciseReminder(reminderId) {
+      try {
+        const res = await Auth.apiFetch(`/api/reminders/${reminderId}`, { method: 'DELETE' });
+        if (!res.ok) {
+          alert('Failed to delete reminder.');
+          return;
+        }
+      } catch {
+        alert('Failed to delete reminder.');
+        return;
+      }
+
+      exerciseReminders = exerciseReminders.filter(item => item.id !== reminderId);
+      if (alertedReminderIds.has(reminderId)) {
+        alertedReminderIds.delete(reminderId);
+        saveReminderAlertState();
+      }
+      renderReminderManager();
+      renderOverviewReminder();
+      renderCalendar();
+    }
+
+    async function openReminder(reminderId) {
+      const reminder = exerciseReminders.find(item => item.id === reminderId);
+      if (!reminder) return;
+      const link = await resolveExerciseStartLink(reminder.exercise);
+      window.location.href = link;
     }
 
     function renderCalendar() {
@@ -2292,6 +2766,17 @@
         }
       });
 
+      const monthReminders = {};
+      exerciseReminders.forEach(reminder => {
+        const date = new Date(reminder.remind_at);
+        if (Number.isNaN(date.getTime()) || !getExerciseCatalogItem(reminder.exercise)) return;
+        if (date.getFullYear() === year && date.getMonth() === month) {
+          const day = date.getDate();
+          if (!monthReminders[day]) monthReminders[day] = [];
+          monthReminders[day].push(reminder);
+        }
+      });
+
       const firstDay = new Date(year, month, 1).getDay();
       const daysInMonth = new Date(year, month + 1, 0).getDate();
       const today = new Date();
@@ -2305,6 +2790,7 @@
       for (let day = 1; day <= daysInMonth; day++) {
         const isToday = year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
         const activity = monthActivity[day];
+        const remindersForDay = monthReminders[day] || [];
         
         let classes = 'calendar-day current-month';
         if (isToday) classes += ' today';
@@ -2316,7 +2802,23 @@
           else classes += ' has-activity';
         }
 
-        html += `<div class="${classes}">${day}</div>`;
+        if (remindersForDay.length > 0) {
+          classes += ' has-reminder';
+        }
+
+        const reminderTitle = remindersForDay.length > 0
+          ? remindersForDay
+              .slice(0, 2)
+              .map(item => `${item.exercise.replace(/_/g, ' ')} at ${formatReminderDateTime(item.remind_at)}`)
+              .join(' • ')
+          : '';
+        const escapedTitle = reminderTitle
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        html += `<div class="${classes}" ${remindersForDay.length > 0 ? `data-tooltip="${escapedTitle}"` : ''}><span>${day}</span>${remindersForDay.length > 0 ? '<span class="reminder-dot"></span>' : ''}</div>`;
       }
 
       grid.innerHTML = html;
