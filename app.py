@@ -76,6 +76,10 @@ ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB limit
 SKELETON_CACHE_DIR = Path("data/cache/reference_skeletons")
 SKELETON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+REMINDER_FALLBACK_FILE = Path("data/reminders.json")
+if not REMINDER_FALLBACK_FILE.exists():
+    REMINDER_FALLBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    REMINDER_FALLBACK_FILE.write_text("[]", encoding="utf-8")
 
 POSE_CONNECTIONS = [
     [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
@@ -571,6 +575,22 @@ def _closest_reference_index(ref_timestamps_ms: list[float], ref_time_ms: float)
     left = ref_timestamps_ms[idx - 1]
     right = ref_timestamps_ms[idx]
     return idx - 1 if abs(ref_time_ms - left) <= abs(right - ref_time_ms) else idx
+
+
+def _load_reminder_fallback_records() -> list[dict]:
+    try:
+        raw = REMINDER_FALLBACK_FILE.read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def _save_reminder_fallback_records(records: list[dict]) -> None:
+    REMINDER_FALLBACK_FILE.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 _CURATED_PRIMARY_ANGLES: dict[str, list[str]] = {
@@ -1341,8 +1361,7 @@ def me_profile():
 # Exercises (public)
 # ---------------------------------------------------------------------------
 
-@app.route("/api/exercises", methods=["GET"])
-def list_exercises():
+def _approved_exercise_catalog() -> list[dict]:
     videos = db.video.find_many(
         where={"status": "approved"},
         include={"uploader": True},
@@ -1351,18 +1370,169 @@ def list_exercises():
     seen: dict[str, dict] = {}
     for v in videos:
         if v.exercise not in seen:
+            exercise_key = resolve_exercise_name(v.exercise)
             seen[v.exercise] = {
                 "exercise": v.exercise,
+                "exercise_key": exercise_key,
                 "video_id": v.id,
                 "uploaded_at": v.uploadedAt.isoformat(),
                 "uploader": {
                     "id": v.uploader.id if v.uploader else None,
                     "username": v.uploader.username if v.uploader else "unknown",
-                    "email": v.uploader.email if v.uploader else None,
                     "created_at": v.uploader.createdAt.isoformat() if v.uploader else None,
                 },
             }
-    return jsonify(list(seen.values()))
+    return list(seen.values())
+
+@app.route("/api/exercises", methods=["GET"])
+def list_exercises():
+    return jsonify(_approved_exercise_catalog())
+
+
+@app.route("/api/reminders", methods=["GET"])
+@require_auth
+def list_reminders():
+    catalog = _approved_exercise_catalog()
+    catalog_map = {
+        resolve_exercise_name(item.get("exercise") or ""): item
+        for item in catalog
+        if resolve_exercise_name(item.get("exercise") or "")
+    }
+    try:
+        reminders = db.reminder.find_many(
+            where={"userId": request.user["sub"]},
+            order={"remindAt": "asc"},
+        )
+    except (TableNotFoundError, DataError):
+        fallback = _load_reminder_fallback_records()
+        payload = [
+            {
+                "id": item["id"],
+                "exercise": resolve_exercise_name(item.get("exercise") or ""),
+                "remind_at": item["remind_at"],
+                "created_at": item["created_at"],
+                "video_id": catalog_map.get(
+                    resolve_exercise_name(item.get("exercise") or ""),
+                    {},
+                ).get("video_id"),
+            }
+            for item in fallback
+            if item.get("user_id") == request.user["sub"]
+            and item.get("id")
+            and item.get("remind_at")
+            and resolve_exercise_name(item.get("exercise") or "") in catalog_map
+        ]
+        payload.sort(key=lambda item: item["remind_at"])
+        return jsonify(payload)
+
+    payload: list[dict] = []
+    for reminder in reminders:
+        exercise_key = resolve_exercise_name(reminder.exercise)
+        catalog_item = catalog_map.get(exercise_key)
+        if not catalog_item:
+            continue
+        payload.append({
+            "id": reminder.id,
+            "exercise": exercise_key,
+            "remind_at": reminder.remindAt.isoformat(),
+            "created_at": reminder.createdAt.isoformat(),
+            "video_id": catalog_item.get("video_id"),
+        })
+
+    return jsonify(payload)
+
+
+@app.route("/api/reminders", methods=["POST"])
+@require_auth
+def create_reminder():
+    data = request.get_json(silent=True) or {}
+    exercise = resolve_exercise_name(data.get("exercise") or "")
+    remind_at_raw = data.get("remind_at")
+
+    if not exercise:
+        return jsonify({"error": "exercise is required"}), 400
+    if not remind_at_raw:
+        return jsonify({"error": "remind_at is required"}), 400
+
+    catalog = _approved_exercise_catalog()
+    catalog_map = {
+        resolve_exercise_name(item.get("exercise") or ""): item
+        for item in catalog
+        if resolve_exercise_name(item.get("exercise") or "")
+    }
+    catalog_item = catalog_map.get(exercise)
+    if not catalog_item:
+        return jsonify({"error": "exercise reference video not found"}), 400
+
+    try:
+        remind_at = datetime.fromisoformat(str(remind_at_raw).replace("Z", "+00:00"))
+    except ValueError:
+        return jsonify({"error": "invalid remind_at"}), 400
+
+    try:
+        reminder = db.reminder.create(data={
+            "id": str(uuid.uuid4()),
+            "userId": request.user["sub"],
+            "exercise": exercise,
+            "remindAt": remind_at,
+        })
+    except (TableNotFoundError, DataError):
+        reminder_id = str(uuid.uuid4())
+        created_at = datetime.now(timezone.utc)
+        fallback = _load_reminder_fallback_records()
+        fallback.append({
+            "id": reminder_id,
+            "user_id": request.user["sub"],
+            "exercise": exercise,
+            "remind_at": remind_at.isoformat(),
+            "created_at": created_at.isoformat(),
+        })
+        _save_reminder_fallback_records(fallback)
+        return jsonify({
+            "id": reminder_id,
+            "exercise": exercise,
+            "remind_at": remind_at.isoformat(),
+            "created_at": created_at.isoformat(),
+            "video_id": catalog_item["video_id"],
+        }), 201
+
+    return jsonify({
+        "id": reminder.id,
+        "exercise": exercise,
+        "remind_at": reminder.remindAt.isoformat(),
+        "created_at": reminder.createdAt.isoformat(),
+        "video_id": catalog_item["video_id"],
+    }), 201
+
+
+@app.route("/api/reminders/<reminder_id>", methods=["DELETE"])
+@require_auth
+def delete_reminder(reminder_id: str):
+    try:
+        reminder = db.reminder.find_unique(where={"id": reminder_id})
+    except (TableNotFoundError, DataError):
+        fallback = _load_reminder_fallback_records()
+        before = len(fallback)
+        filtered = [
+            item
+            for item in fallback
+            if not (
+                item.get("id") == reminder_id
+                and item.get("user_id") == request.user["sub"]
+            )
+        ]
+        if len(filtered) == before:
+            return jsonify({"error": "reminder not found"}), 404
+        _save_reminder_fallback_records(filtered)
+        return jsonify({"ok": True})
+    if not reminder or reminder.userId != request.user["sub"]:
+        return jsonify({"error": "reminder not found"}), 404
+
+    try:
+        db.reminder.delete(where={"id": reminder_id})
+    except (TableNotFoundError, DataError):
+        return jsonify({"error": "reminders_unavailable"}), 503
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------

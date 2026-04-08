@@ -39,6 +39,7 @@ model User {
   suggestedCategories Category[]
   exerciseReports     ExerciseReport[]
   exerciseSessions    ExerciseSession[]
+  reminders           Reminder[]
 }
 
 model Session {
@@ -152,4 +153,15 @@ model SessionReport {
   completed       Boolean
   reportJson      Json
   createdAt       DateTime        @default(now())
+}
+
+model Reminder {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise    String
+  remindAt    DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId, remindAt])
 }
