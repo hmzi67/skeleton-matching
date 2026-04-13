@@ -70,6 +70,152 @@
     .voice-toggle.active { border-color: #0d9488; color: #2dd4bf; background: rgba(45, 212, 191, 0.08); }
     .voice-toggle svg { width: 16px; height: 16px; }
 
+    /* Settings Button */
+    .settings-btn {
+      background: none;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #9ca3af;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .settings-btn:hover { border-color: #3a3a3a; color: #d4d4d4; }
+    .settings-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .settings-btn svg { width: 16px; height: 16px; }
+
+    /* Settings Modal */
+    .settings-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .settings-modal-overlay.visible { display: flex; }
+
+    .settings-modal {
+      background: #1c1c22;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 28px 32px;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    .settings-modal h3 {
+      margin: 0 0 8px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .settings-modal h3 svg { color: #2dd4bf; }
+
+    .settings-modal p {
+      margin: 0 0 24px;
+      font-size: 0.88rem;
+      color: #9ca3af;
+    }
+
+    .settings-field {
+      margin-bottom: 20px;
+    }
+    .settings-field label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #d4d4d4;
+      margin-bottom: 8px;
+    }
+    .settings-field input[type="number"] {
+      width: 100%;
+      padding: 12px 14px;
+      background: #15151a;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: border-color 0.2s;
+    }
+    .settings-field input[type="number"]:focus {
+      outline: none;
+      border-color: #2dd4bf;
+    }
+    .settings-field .hint {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+
+    .settings-summary {
+      background: rgba(45, 212, 191, 0.08);
+      border: 1px solid rgba(45, 212, 191, 0.2);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .settings-summary .total {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #2dd4bf;
+    }
+    .settings-summary .label {
+      font-size: 0.82rem;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    .settings-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .settings-actions button {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .settings-actions .cancel-btn {
+      background: #2a2a2a;
+      color: #d4d4d4;
+    }
+    .settings-actions .cancel-btn:hover { background: #3a3a3a; }
+    .settings-actions .save-btn {
+      background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+      color: #0f0f0f;
+    }
+    .settings-actions .save-btn:hover { background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%); }
+
+    .current-settings-chip {
+      font-size: 0.72rem;
+      color: #6b7280;
+      background: #1a1a1f;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
     .speed-strip {
       position: absolute;
       bottom: 14px;
@@ -159,6 +305,7 @@
       border: 1px solid #2a2a2a;
       border-radius: 8px;
       padding: 6px 12px;
+      white-space: nowrap;
     }
 
     .phase-chip { border-color: #0d9488; color: #5eead4; background: rgba(45, 212, 191, 0.1); }
@@ -534,6 +681,13 @@
     </div>
     <div style="display:flex;align-items:center;gap:12px">
       <span id="navUser" style="font-size:0.88rem;color:#737373"></span>
+      <span class="current-settings-chip" id="currentSettingsChip">3 sets × 10 reps</span>
+      <button class="settings-btn" id="settingsBtn" title="Workout Settings">
+        <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
       <button class="voice-toggle" id="voiceToggle" title="Toggle voice coaching">
         <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -657,6 +811,42 @@
       <div class="report-actions">
         <button class="report-btn secondary" id="reportCloseBtn">Close</button>
         <button class="report-btn primary" id="reportTryAgainBtn">Try Again</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="settings-modal-overlay" id="settingsModal">
+    <div class="settings-modal">
+      <h3>
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+        Workout Settings
+      </h3>
+      <p>Customize your workout session before starting.</p>
+
+      <div class="settings-field">
+        <label for="settingSets">Number of Sets</label>
+        <input type="number" id="settingSets" min="1" max="10" value="3">
+        <div class="hint">How many sets you want to complete</div>
+      </div>
+
+      <div class="settings-field">
+        <label for="settingReps">Reps per Set</label>
+        <input type="number" id="settingReps" min="1" max="50" value="10">
+        <div class="hint">Repetitions in each set</div>
+      </div>
+
+      <div class="settings-summary">
+        <div class="total" id="settingsTotalReps">30</div>
+        <div class="label">Total Reps</div>
+      </div>
+
+      <div class="settings-actions">
+        <button class="cancel-btn" id="settingsCancelBtn">Cancel</button>
+        <button class="save-btn" id="settingsSaveBtn">Save Settings</button>
       </div>
     </div>
   </div>
@@ -786,13 +976,106 @@
     let sessionCompleteHandled = false;
 
     // ---- Reporting (per-rep / per-set / per-session) ----
-    const REPS_PER_SET = 10;
-    const TOTAL_SETS = 3;
+    // User-configurable settings (defaults)
+    let REPS_PER_SET = 10;
+    let TOTAL_SETS = 3;
     let reportSessionId = null;
     let reportFrameIndex = 0;
     let reportRepsInCurrentSet = 0;
     let reportSetNumber = 1;
     let reportInterstitialShown = false;
+    let reportRestPaused = false;
+    let reportRestTimerId = null;
+    let reportInterstitialOverlay = null;
+
+    function clearReportRestTimer() {
+      if (reportRestTimerId) {
+        clearInterval(reportRestTimerId);
+        reportRestTimerId = null;
+      }
+    }
+
+    function resetReportRestState(removeOverlay = true) {
+      clearReportRestTimer();
+      if (removeOverlay && reportInterstitialOverlay) {
+        reportInterstitialOverlay.remove();
+      }
+      reportInterstitialOverlay = null;
+      reportInterstitialShown = false;
+      reportRestPaused = false;
+    }
+
+    function resumeAfterRest() {
+      if (!reportRestPaused && !reportInterstitialShown) return;
+      resetReportRestState(true);
+      if (stream && refVideo.paused) {
+        refVideo.play().catch(() => {});
+      }
+    }
+
+    // Settings modal elements
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+    const settingSetsInput = document.getElementById('settingSets');
+    const settingRepsInput = document.getElementById('settingReps');
+    const settingsTotalReps = document.getElementById('settingsTotalReps');
+    const settingsCancelBtn = document.getElementById('settingsCancelBtn');
+    const settingsSaveBtn = document.getElementById('settingsSaveBtn');
+    const currentSettingsChip = document.getElementById('currentSettingsChip');
+
+    function updateSettingsChip() {
+      currentSettingsChip.textContent = `${TOTAL_SETS} set${TOTAL_SETS > 1 ? 's' : ''} × ${REPS_PER_SET} reps`;
+      targetReps = TOTAL_SETS * REPS_PER_SET;
+    }
+
+    function updateSettingsSummary() {
+      const sets = parseInt(settingSetsInput.value) || 1;
+      const reps = parseInt(settingRepsInput.value) || 1;
+      settingsTotalReps.textContent = sets * reps;
+    }
+
+    function openSettingsModal() {
+      settingSetsInput.value = TOTAL_SETS;
+      settingRepsInput.value = REPS_PER_SET;
+      updateSettingsSummary();
+      settingsModal.classList.add('visible');
+    }
+
+    function closeSettingsModal() {
+      settingsModal.classList.remove('visible');
+    }
+
+    function saveSettings() {
+      const newSets = Math.max(1, Math.min(10, parseInt(settingSetsInput.value) || 3));
+      const newReps = Math.max(1, Math.min(50, parseInt(settingRepsInput.value) || 10));
+      TOTAL_SETS = newSets;
+      REPS_PER_SET = newReps;
+      targetReps = TOTAL_SETS * REPS_PER_SET;
+      updateSettingsChip();
+      updateRepChip();
+      closeSettingsModal();
+    }
+
+    settingsBtn.addEventListener('click', () => {
+      if (sessionActive) {
+        alert('Cannot change settings while workout is in progress. Stop the camera first.');
+        return;
+      }
+      openSettingsModal();
+    });
+
+    settingsCancelBtn.addEventListener('click', closeSettingsModal);
+    settingsSaveBtn.addEventListener('click', saveSettings);
+    settingSetsInput.addEventListener('input', updateSettingsSummary);
+    settingRepsInput.addEventListener('input', updateSettingsSummary);
+
+    // Close modal on backdrop click
+    settingsModal.addEventListener('click', (e) => {
+      if (e.target === settingsModal) closeSettingsModal();
+    });
+
+    // Initialize settings chip
+    updateSettingsChip();
 
     async function ensureReportSession() {
       if (reportSessionId) return reportSessionId;
@@ -828,12 +1111,19 @@
     }
 
     async function reportRepComplete() {
-      const sid = reportSessionId;
-      if (!sid) return;
-      try {
-        await Auth.apiFetch(`/api/session/${sid}/rep-complete`, { method: 'POST' });
-      } catch (e) {}
+      if (reportRestPaused) return;
+
+      // Increment immediately so display is correct
       reportRepsInCurrentSet++;
+      
+      const sid = reportSessionId;
+      if (sid) {
+        try {
+          await Auth.apiFetch(`/api/session/${sid}/rep-complete`, { method: 'POST' });
+        } catch (e) {}
+      }
+      
+      // Check if set is complete AFTER incrementing
       if (reportRepsInCurrentSet >= REPS_PER_SET) {
         await reportSetComplete();
       }
@@ -842,13 +1132,29 @@
     async function reportSetComplete() {
       const sid = reportSessionId;
       if (!sid) return;
+
+      reportRestPaused = true;
+      if (!refVideo.paused) {
+        refVideo.pause();
+      }
+
+      let interstitialShown = false;
       try {
         const res = await Auth.apiFetch(`/api/session/${sid}/set-complete`, { method: 'POST' });
         if (res.ok) {
           const setReport = await res.json();
           showSetInterstitial(setReport);
+          interstitialShown = true;
         }
       } catch (e) {}
+
+      if (!interstitialShown) {
+        reportRestPaused = false;
+        if (stream && refVideo.paused) {
+          refVideo.play().catch(() => {});
+        }
+      }
+
       reportRepsInCurrentSet = 0;
       reportSetNumber++;
     }
@@ -872,6 +1178,13 @@
       return '#f44336';
     }
 
+    function _getGrade(pct) {
+      if (pct >= 90) return 'Excellent';
+      if (pct >= 75) return 'Good';
+      if (pct >= 60) return 'Needs Work';
+      return 'Poor';
+    }
+
     function _renderRepGrid(reps) {
       if (!reps || reps.length === 0) return '';
       const cells = reps.map(r => {
@@ -890,55 +1203,167 @@
       return `<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:14px 0;">${cells}</div>`;
     }
 
+    function _renderDetailedRepList(reps) {
+      if (!reps || reps.length === 0) return '';
+      return reps.map(r => {
+        const pct = Math.round((r.accuracy || 0) * 100);
+        const color = _repColorClass(r.accuracy || 0);
+        const issues = r.problem_joints || [];
+        const issuesHtml = issues.length > 0
+          ? `<div style="font-size:11px;color:#9ca3af;margin-top:4px;">Issues: ${issues.slice(0, 3).map(j => j.label || j).join(', ')}</div>`
+          : '';
+        return `
+          <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 12px;background:#15151a;border-radius:8px;margin:6px 0;">
+            <div style="min-width:50px;text-align:center;">
+              <div style="font-size:18px;font-weight:700;color:${color};">${pct}%</div>
+              <div style="font-size:10px;opacity:.6;">Rep ${r.rep}</div>
+            </div>
+            <div style="flex:1;border-left:1px solid #2a2a30;padding-left:12px;">
+              <div style="width:100%;height:6px;background:#2a2a30;border-radius:3px;overflow:hidden;">
+                <div style="width:${pct}%;height:100%;background:${color};"></div>
+              </div>
+              ${issuesHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function showSetInterstitial(setReport) {
       if (reportInterstitialShown) return;
       reportInterstitialShown = true;
-      const top2 = (setReport.problem_joints || []).slice(0, 2)
-        .map(j => `<li>${j.label} <span style="opacity:.7">(${j.severity})</span></li>`).join('');
+      reportRestPaused = true;
+      if (!refVideo.paused) {
+        refVideo.pause();
+      }
+      
+      const problemJoints = (setReport.problem_joints || []).slice(0, 3);
+      const problemJointsHtml = problemJoints.map(j => {
+        const severityColor = j.severity === 'critical' ? '#f44336' : j.severity === 'moderate' ? '#ffc107' : '#86efac';
+        return `
+          <li style="margin:6px 0;display:flex;align-items:center;gap:8px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${severityColor};"></span>
+            <span>${j.label}</span>
+            <span style="opacity:.6;font-size:12px;">(${j.severity}${j.error_pct ? `, ${j.error_pct}% off` : ''})</span>
+          </li>
+        `;
+      }).join('');
+      
       const isLast = setReport.set_number >= TOTAL_SETS;
-      const repsGrid = _renderRepGrid(setReport.reps || []);
+      const repsWithIssues = (setReport.reps || []).map(r => ({
+        ...r,
+        problem_joints: r.problem_joints || []
+      }));
+      const repsGrid = _renderRepGrid(repsWithIssues);
+      const detailedReps = _renderDetailedRepList(repsWithIssues);
+      
+      const setProgress = `Set ${setReport.set_number} of ${TOTAL_SETS}`;
+      const totalRepsCompleted = ((setReport.set_number - 1) * REPS_PER_SET) + (setReport.reps?.length || 0);
+      const totalRepsTarget = TOTAL_SETS * REPS_PER_SET;
+      const progressPct = Math.round((totalRepsCompleted / totalRepsTarget) * 100);
+      
       const overlay = document.createElement('div');
       overlay.id = 'pm-set-interstitial';
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;';
       overlay.innerHTML = `
-        <div style="background:#1c1c22;padding:28px 36px;border-radius:14px;max-width:560px;width:100%;text-align:center;max-height:90vh;overflow-y:auto;">
-          <h2 style="margin:0 0 6px;font-size:22px;">Set ${setReport.set_number} complete!</h2>
-          <div style="font-size:42px;font-weight:800;margin:6px 0;">${Math.round((setReport.overall_accuracy||0)*100)}%</div>
-          <div style="opacity:.8;margin-bottom:8px;">${setReport.grade}</div>
-          <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-top:14px;">Per-rep accuracy</div>
-          ${repsGrid}
-          ${top2 ? `<div style="text-align:left;margin:14px 0;"><div style="font-size:11px;opacity:.55;text-transform:uppercase;">Top issues</div><ul style="margin:6px 0 0;padding-left:18px;">${top2}</ul></div>` : ''}
-          <div id="pm-rest-timer" style="font-size:14px;opacity:.7;margin:12px 0;">Rest 30s</div>
-          <button id="pm-next-set" style="padding:10px 24px;border:none;border-radius:8px;background:#4caf50;color:#fff;font-weight:700;cursor:pointer;font-size:14px;">${isLast ? 'Finish session' : `Start Set ${setReport.set_number + 1}`}</button>
+        <div style="background:#1c1c22;padding:28px 36px;border-radius:14px;max-width:600px;width:100%;text-align:center;max-height:92vh;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <span style="font-size:12px;opacity:.6;">${setProgress}</span>
+            <span style="font-size:12px;opacity:.6;">${totalRepsCompleted}/${totalRepsTarget} reps</span>
+          </div>
+          
+          <h2 style="margin:0 0 6px;font-size:24px;">🎯 Set ${setReport.set_number} Complete!</h2>
+          
+          <div style="font-size:48px;font-weight:800;margin:10px 0;color:${_repColorClass(setReport.overall_accuracy||0)};">${Math.round((setReport.overall_accuracy||0)*100)}%</div>
+          <div style="opacity:.85;margin-bottom:16px;font-size:1.1rem;">${setReport.grade}</div>
+          
+          <!-- Session Progress Bar -->
+          <div style="margin:16px 0;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;opacity:.6;margin-bottom:6px;">
+              <span>Session Progress</span>
+              <span>${progressPct}%</span>
+            </div>
+            <div style="width:100%;height:8px;background:#2a2a30;border-radius:4px;overflow:hidden;">
+              <div style="width:${progressPct}%;height:100%;background:linear-gradient(90deg,#2dd4bf,#14b8a6);transition:width 0.3s;"></div>
+            </div>
+          </div>
+          
+          <!-- Per-Rep Breakdown -->
+          <div style="margin:20px 0;">
+            <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-bottom:10px;">Rep-by-Rep Performance</div>
+            ${repsGrid}
+          </div>
+          
+          ${problemJointsHtml ? `
+            <div style="text-align:left;background:#15151a;padding:14px 16px;border-radius:10px;margin:14px 0;">
+              <div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-bottom:8px;">⚠️ Areas to Improve</div>
+              <ul style="margin:0;padding-left:0;list-style:none;">${problemJointsHtml}</ul>
+            </div>
+          ` : `
+            <div style="background:rgba(45,212,191,.1);border:1px solid rgba(45,212,191,.2);padding:12px 16px;border-radius:10px;margin:14px 0;">
+              <span style="color:#2dd4bf;">✓ Great form! No significant issues detected.</span>
+            </div>
+          `}
+          
+          <div id="pm-rest-timer" style="font-size:16px;opacity:.8;margin:16px 0;font-weight:600;">
+            ${isLast ? '🎉 All sets complete!' : '⏱️ Rest: 30s (auto-start)'}
+          </div>
+          
+          <button id="pm-next-set" style="padding:14px 32px;border:none;border-radius:10px;background:${isLast ? 'linear-gradient(135deg,#2dd4bf,#14b8a6)' : '#4caf50'};color:${isLast ? '#0f0f0f' : '#fff'};font-weight:700;cursor:pointer;font-size:15px;transition:transform 0.15s;">
+            ${isLast ? '🏆 View Final Report' : `▶ Start Set ${setReport.set_number + 1} Now`}
+          </button>
         </div>
       `;
       document.body.appendChild(overlay);
-      let secs = 30;
-      const timerEl = overlay.querySelector('#pm-rest-timer');
-      const tick = setInterval(() => {
-        secs--;
-        if (secs <= 0) { clearInterval(tick); timerEl.textContent = 'Ready!'; }
-        else timerEl.textContent = `Rest ${secs}s`;
-      }, 1000);
-      overlay.querySelector('#pm-next-set').onclick = async () => {
-        clearInterval(tick);
-        overlay.remove();
-        reportInterstitialShown = false;
-        if (isLast) {
+      reportInterstitialOverlay = overlay;
+      
+      // Rest timer (only for non-last sets)
+      if (!isLast) {
+        let secs = 30;
+        const timerEl = overlay.querySelector('#pm-rest-timer');
+        reportRestTimerId = setInterval(() => {
+          secs--;
+          if (secs <= 0) { 
+            timerEl.textContent = '✅ Starting next set...';
+            timerEl.style.color = '#2dd4bf';
+            resumeAfterRest();
+          } else {
+            timerEl.textContent = `⏱️ Rest: ${secs}s (auto-start)`;
+          }
+        }, 1000);
+        
+        overlay.querySelector('#pm-next-set').onclick = async () => {
+          timerEl.textContent = '✅ Starting next set...';
+          timerEl.style.color = '#2dd4bf';
+          resumeAfterRest();
+        };
+      } else {
+        overlay.querySelector('#pm-next-set').onclick = async () => {
+          resetReportRestState(true);
           const sessionReport = await reportSessionEnd(true);
           reportSessionId = null;
           showSessionEndScreen(sessionReport);
           try { stopCamera(); } catch (e) {}
-        }
-      };
+        };
+      }
     }
 
     async function showSessionEndScreen(sessionReport) {
       const sid = reportSessionId || _lastEndedSessionId;
-      const accPct = sessionReport ? Math.round((sessionReport.overall_accuracy||0)*100) : 0;
-      const grade = sessionReport ? sessionReport.grade : '—';
+      
+      // Calculate local stats as fallback
+      const localScores = scoreHistory.filter(s => typeof s === 'number');
+      const localAvg = localScores.length > 0 
+        ? localScores.reduce((a, b) => a + b, 0) / localScores.length 
+        : 0;
+      
+      // Use backend data if available, otherwise use local tracking
+      const accPct = sessionReport?.overall_accuracy 
+        ? Math.round(sessionReport.overall_accuracy * 100)
+        : Math.round(localAvg);
+      const grade = sessionReport?.grade || _getGrade(accPct);
       const completed = sessionReport ? !!sessionReport.completed : false;
-      const totalReps = sessionReport ? sessionReport.total_reps : 0;
+      const totalReps = sessionReport?.total_reps || currentRepCount;
 
       // Fetch the full per-set breakdown so we can show every rep.
       let setReports = [];
@@ -953,36 +1378,143 @@
       }
 
       const top = sessionReport ? (sessionReport.problem_joints || []).slice(0, 5) : [];
-      const topHtml = top.map(j => `
-        <li style="margin:4px 0;">
-          <strong>${j.label}</strong>
-          <span style="opacity:.7;font-size:12px;"> · ${j.severity} · ${j.error_pct}% off</span>
-        </li>
-      `).join('');
+      const topHtml = top.map(j => {
+        const severityColor = j.severity === 'critical' ? '#f44336' : j.severity === 'moderate' ? '#ffc107' : '#86efac';
+        return `
+          <li style="margin:6px 0;display:flex;align-items:center;gap:8px;">
+            <span style="width:10px;height:10px;border-radius:50%;background:${severityColor};flex-shrink:0;"></span>
+            <div>
+              <strong>${j.label}</strong>
+              <span style="opacity:.7;font-size:12px;margin-left:6px;">${j.severity}${j.error_pct ? ` · ${j.error_pct}% avg deviation` : ''}</span>
+            </div>
+          </li>
+        `;
+      }).join('');
 
-      const setsHtml = setReports.map(sr => `
-        <div style="border:1px solid #2a2a30;border-radius:10px;padding:12px 14px;margin:10px 0;text-align:left;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <strong style="font-size:14px;">Set ${sr.set_number}</strong>
-            <span style="font-size:13px;font-weight:700;color:${_repColorClass(sr.overall_accuracy||0)};">${Math.round((sr.overall_accuracy||0)*100)}% · ${sr.grade}</span>
+      // Enhanced set breakdown with detailed rep info
+      const setsHtml = setReports.map(sr => {
+        const setAccPct = Math.round((sr.overall_accuracy || 0) * 100);
+        const setColor = _repColorClass(sr.overall_accuracy || 0);
+        const setProblems = (sr.problem_joints || []).slice(0, 2);
+        const problemsHtml = setProblems.length > 0
+          ? `<div style="font-size:11px;color:#9ca3af;margin-top:8px;padding-top:8px;border-top:1px solid #2a2a30;">⚠️ ${setProblems.map(p => p.label).join(', ')}</div>`
+          : '';
+        
+        return `
+          <div style="border:1px solid #2a2a30;border-radius:12px;padding:16px;margin:12px 0;text-align:left;background:#15151a;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <div>
+                <strong style="font-size:15px;">Set ${sr.set_number}</strong>
+                <span style="font-size:12px;opacity:.6;margin-left:8px;">${sr.reps?.length || 0} reps</span>
+              </div>
+              <div style="text-align:right;">
+                <span style="font-size:20px;font-weight:800;color:${setColor};">${setAccPct}%</span>
+                <div style="font-size:11px;opacity:.7;">${sr.grade}</div>
+              </div>
+            </div>
+            ${_renderRepGrid(sr.reps || [])}
+            ${problemsHtml}
           </div>
-          ${_renderRepGrid(sr.reps || [])}
-        </div>
-      `).join('');
+        `;
+      }).join('');
+
+      // Calculate session duration estimate
+      const sessionDuration = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+      const durationMin = Math.floor(sessionDuration / 60);
+      const durationSec = sessionDuration % 60;
+      const durationStr = durationMin > 0 ? `${durationMin}m ${durationSec}s` : `${durationSec}s`;
+
+      // Grade emoji
+      const gradeEmoji = accPct >= 90 ? '🏆' : accPct >= 75 ? '🎯' : accPct >= 60 ? '💪' : '📈';
+
+      // Calculate actual completed sets (use setReports if available, else use local tracking)
+      const completedSets = setReports.length > 0 ? setReports.length : Math.max(0, reportSetNumber - 1);
+      const displayTotalReps = totalReps > 0 ? totalReps : currentRepCount;
 
       const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;overflow-y:auto;';
       overlay.innerHTML = `
-        <div style="background:#1c1c22;padding:32px 38px;border-radius:14px;max-width:640px;width:100%;text-align:center;max-height:92vh;overflow-y:auto;">
-          <h2 style="margin:0 0 4px;font-size:24px;">Session ${completed ? 'complete' : 'ended'}</h2>
-          <div style="opacity:.6;font-size:12px;margin-bottom:8px;">${totalReps} reps across ${setReports.length} set${setReports.length === 1 ? '' : 's'}</div>
-          <div style="font-size:48px;font-weight:800;margin:10px 0;color:${_repColorClass((sessionReport?.overall_accuracy)||0)};">${accPct}%</div>
-          <div style="opacity:.85;margin-bottom:12px;">${grade}${completed ? '' : ' · partial'}</div>
-          ${setsHtml || '<div style="opacity:.6;font-style:italic;margin:14px 0;">No completed sets recorded.</div>'}
-          ${topHtml ? `<div style="text-align:left;background:#15151a;padding:14px 16px;border-radius:10px;margin:14px 0;"><div style="font-size:11px;opacity:.55;text-transform:uppercase;margin-bottom:6px;">Top problem joints</div><ul style="margin:0;padding-left:18px;">${topHtml}</ul></div>` : ''}
-          <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">
-            <a href="/report.html?session=${sid}" style="padding:10px 22px;border-radius:8px;background:#2d5e8f;color:#fff;text-decoration:none;font-weight:700;">View full report</a>
-            <a href="/profile" style="padding:10px 22px;border-radius:8px;background:#444;color:#fff;text-decoration:none;font-weight:700;">My profile</a>
+        <div style="background:#1c1c22;padding:32px 38px;border-radius:16px;max-width:700px;width:100%;text-align:center;max-height:94vh;overflow-y:auto;margin:auto;">
+          
+          <!-- Header -->
+          <div style="margin-bottom:20px;">
+            <h2 style="margin:0 0 6px;font-size:28px;">${gradeEmoji} Session ${completed ? 'Complete!' : 'Ended'}</h2>
+            <div style="opacity:.6;font-size:13px;">${exercise.replace(/_/g, ' ')} · ${displayTotalReps} reps${completedSets > 0 ? ` across ${completedSets} set${completedSets === 1 ? '' : 's'}` : ''} · ${durationStr}</div>
+          </div>
+          
+          <!-- Overall Score -->
+          <div style="background:linear-gradient(135deg,rgba(45,212,191,.1),rgba(20,184,166,.05));border:1px solid rgba(45,212,191,.2);border-radius:14px;padding:24px;margin:20px 0;">
+            <div style="font-size:56px;font-weight:800;color:${_repColorClass(accPct/100)};line-height:1;">${accPct}%</div>
+            <div style="font-size:1.2rem;opacity:.9;margin-top:8px;">${grade}${completed ? '' : ' · Partial Session'}</div>
+          </div>
+          
+          <!-- Quick Stats -->
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0;">
+            <div style="background:#15151a;padding:14px;border-radius:10px;">
+              <div style="font-size:22px;font-weight:700;color:#2dd4bf;">${completedSets}</div>
+              <div style="font-size:11px;opacity:.6;">Sets</div>
+            </div>
+            <div style="background:#15151a;padding:14px;border-radius:10px;">
+              <div style="font-size:22px;font-weight:700;color:#86efac;">${displayTotalReps}</div>
+              <div style="font-size:11px;opacity:.6;">Total Reps</div>
+            </div>
+            <div style="background:#15151a;padding:14px;border-radius:10px;">
+              <div style="font-size:22px;font-weight:700;color:#fcd34d;">${durationStr}</div>
+              <div style="font-size:11px;opacity:.6;">Duration</div>
+            </div>
+          </div>
+          
+          <!-- Set-by-Set Breakdown -->
+          <div style="text-align:left;margin:24px 0;">
+            <div style="font-size:12px;opacity:.55;text-transform:uppercase;margin-bottom:8px;text-align:center;">📊 Set-by-Set Performance</div>
+            ${setsHtml || (reportRepsInCurrentSet > 0 ? `
+              <div style="border:1px solid #2a2a30;border-radius:12px;padding:16px;margin:12px 0;text-align:left;background:#15151a;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                  <div>
+                    <strong style="font-size:15px;">Set ${reportSetNumber}</strong>
+                    <span style="font-size:12px;opacity:.6;margin-left:8px;">${reportRepsInCurrentSet} of ${REPS_PER_SET} reps (incomplete)</span>
+                  </div>
+                  <div style="text-align:right;">
+                    <span style="font-size:20px;font-weight:800;color:${accPct >= 80 ? '#22c55e' : accPct >= 60 ? '#facc15' : '#ef4444'};">${accPct}%</span>
+                    <div style="font-size:11px;opacity:.7;">Avg</div>
+                  </div>
+                </div>
+              </div>
+            ` : '<div style="opacity:.6;font-style:italic;margin:14px 0;text-align:center;">No reps recorded yet.</div>')}
+          </div>
+          
+          <!-- Problem Joints Summary -->
+          ${topHtml ? `
+            <div style="text-align:left;background:#1a1215;border:1px solid #3d2020;padding:16px 18px;border-radius:12px;margin:20px 0;">
+              <div style="font-size:12px;opacity:.55;text-transform:uppercase;margin-bottom:10px;">🔍 Areas Needing Improvement</div>
+              <ul style="margin:0;padding-left:0;list-style:none;">${topHtml}</ul>
+            </div>
+          ` : `
+            <div style="background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.2);padding:16px 18px;border-radius:12px;margin:20px 0;">
+              <span style="color:#2dd4bf;font-size:14px;">✨ Excellent form throughout the session! Keep it up!</span>
+            </div>
+          `}
+          
+          <!-- Coaching Recommendation -->
+          <div style="background:#15151a;padding:16px 18px;border-radius:12px;margin:20px 0;text-align:left;">
+            <div style="font-size:12px;opacity:.55;text-transform:uppercase;margin-bottom:8px;">💡 Next Steps</div>
+            <p style="margin:0;font-size:13px;line-height:1.5;opacity:.85;">
+              ${accPct >= 90 
+                ? `Outstanding performance! Consider increasing difficulty by adding more reps per set or reducing rest time.`
+                : accPct >= 75 
+                  ? `Good progress! Focus on ${top.length > 0 ? top[0].label.toLowerCase() : 'form consistency'} to push into the excellent range.`
+                  : accPct >= 60
+                    ? `Keep practicing! Pay attention to ${top.length > 0 ? 'your ' + top.slice(0, 2).map(j => j.label.toLowerCase()).join(' and ') : 'maintaining proper form'} throughout each rep.`
+                    : `Focus on form over speed. ${top.length > 0 ? 'Work on ' + top[0].label.toLowerCase() + ' positioning' : 'Practice each phase of the movement slowly'} before increasing intensity.`
+              }
+            </p>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div style="display:flex;gap:12px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
+            <a href="/report.html?session=${sid}" style="padding:14px 28px;border-radius:10px;background:linear-gradient(135deg,#2dd4bf,#14b8a6);color:#0f0f0f;text-decoration:none;font-weight:700;font-size:14px;">📄 Full Report</a>
+            <button onclick="location.reload()" style="padding:14px 28px;border-radius:10px;background:#4caf50;color:#fff;border:none;font-weight:700;cursor:pointer;font-size:14px;">🔄 Try Again</button>
+            <a href="/profile" style="padding:14px 28px;border-radius:10px;background:#2a2a30;color:#d4d4d4;text-decoration:none;font-weight:700;font-size:14px;">👤 My Profile</a>
           </div>
         </div>
       `;
@@ -1428,7 +1960,10 @@
 
     function renderFeedback(feedback, phase, repCount) {
       phaseChip.textContent = `Phase: ${phase || 'READY'}`;
-      repChip.textContent = `Reps: ${repCount || 0}`;
+      // Show set and rep info - use our local reportRepsInCurrentSet, not backend repCount
+      const setInfo = sessionActive ? `Set ${reportSetNumber}/${TOTAL_SETS} · ` : '';
+      const displayReps = sessionActive ? reportRepsInCurrentSet : 0;
+      repChip.textContent = `${setInfo}Reps: ${displayReps}/${REPS_PER_SET}`;
 
       if (!feedback) {
         feedbackRow.innerHTML = '';
@@ -1506,10 +2041,12 @@
     }
 
     function canCaptureAndMatch() {
-      return stream && refId && liveVideo.readyState >= 2 && refVideo.readyState >= 2 && !refVideo.paused;
+      return stream && refId && liveVideo.readyState >= 2 && refVideo.readyState >= 2 && !refVideo.paused && !reportRestPaused;
     }
 
-    function processFrameResult(data) {
+    async function processFrameResult(data) {
+      if (reportRestPaused) return;
+
       lastBackendStatuses.joint = data.joint_statuses || {};
       lastBackendStatuses.bone = data.bone_statuses || {};
 
@@ -1524,7 +2061,7 @@
       
       setScore(data.match_score);
       showCoachingText(data.coaching_text || '');
-      if (data.coaching_text) speakCoaching(data.coaching_text);
+      if (data.speech_text) speakCoaching(data.speech_text);
       renderFeedback(data.feedback, data.phase, data.rep_count);
       updateSyncIndicator(data.temporal);
 
@@ -1562,21 +2099,23 @@
         _track(data.coaching_text);
         (data.feedback?.top_joint_feedback || []).forEach(jf => _track(jf?.instruction));
 
-        // Reporting: ensure session and forward this frame.
-        ensureReportSession().then(() => reportSendFrame(data));
+        // Reporting: ensure session exists, then send frame data
+        await ensureReportSession();
+        reportSendFrame(data);  // Fire and forget frame data
 
         // Per-rep event from backend
         if (data.rep_completed) {
           const rc = data.rep_completed;
           repData.push({ rep: rc.rep_number, score: rc.score, jointIssues: rc.joint_issues || {} });
-          updateRepChip();
-          reportRepComplete();
+          currentRepCount++;
+          await reportRepComplete();  // Wait for this to complete (increments reportRepsInCurrentSet)
+          updateRepChip();  // Now update display with correct count
         }
 
         // Auto-stop when target reps reached
         if (data.session_complete && !sessionCompleteHandled) {
           sessionCompleteHandled = true;
-          showCoachingText(`${targetReps} reps done! Great work!`);
+          showCoachingText(`All ${TOTAL_SETS} sets complete! Great workout!`);
           _lastEndedSessionId = reportSessionId;
           reportSessionEnd(true).then(sr => {
             reportSessionId = null;
@@ -1602,7 +2141,9 @@
     }
 
     function updateRepChip() {
-      repChip.textContent = `Reps: ${currentRepCount}${targetReps ? ' / ' + targetReps : ''}`;
+      const setInfo = sessionActive ? `Set ${reportSetNumber}/${TOTAL_SETS} · ` : '';
+      const repsInSet = reportRepsInCurrentSet || 0;
+      repChip.textContent = `${setInfo}Reps: ${repsInSet}/${REPS_PER_SET}`;
     }
 
     function processNoResult() {
@@ -1636,18 +2177,22 @@
         });
 
         if (!res.ok) {
-          processNoResult();
+          if (!reportRestPaused) {
+            processNoResult();
+          }
           return;
         }
 
         const data = await res.json();
         if (data.type === 'frame_result') {
           processFrameResult(data);
-        } else {
+        } else if (!reportRestPaused) {
           processNoResult();
         }
       } catch {
-        processNoResult();
+        if (!reportRestPaused) {
+          processNoResult();
+        }
       } finally {
         frameBusy = false;
       }
@@ -1686,29 +2231,53 @@
       lastFrameSentAt = now;
     }
 
+    // Track if we've started a fresh workout session (to avoid resetting on reconnection)
+    let workoutStarted = false;
+    let wsRetryCount = 0;
+    const MAX_WS_RETRIES = 2;  // Only try WebSocket twice, then rely on HTTP fallback
+
     function startWebSocketStream() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      
+      // If we've failed to connect too many times, skip WebSocket and just use HTTP fallback
+      if (wsRetryCount >= MAX_WS_RETRIES) {
+        startHttpFallback();
+        return;
+      }
 
-      // Start session tracking
-      sessionStartTime = Date.now();
-      sessionActive = true;
-      scoreHistory = [];
-      phaseHistory = [];
-      jointIssueTracker = {};
-      boneIssueTracker = {};
-      feedbackTracker = {};
-      currentRepCount = 0;
-      repData = [];
-      sessionCompleteHandled = false;
+      // Only reset tracking variables for a FRESH workout, not reconnection attempts
+      if (!workoutStarted) {
+        // Start session tracking
+        sessionStartTime = Date.now();
+        sessionActive = true;
+        scoreHistory = [];
+        phaseHistory = [];
+        jointIssueTracker = {};
+        boneIssueTracker = {};
+        feedbackTracker = {};
+        currentRepCount = 0;
+        repData = [];
+        sessionCompleteHandled = false;
 
-      // Reset reporting session linkage for this workout.
-      reportSessionId = null;
-      _lastEndedSessionId = null;
-      reportFrameIndex = 0;
-      reportRepsInCurrentSet = 0;
-      reportSetNumber = 1;
-      reportInterstitialShown = false;
+        // Reset reporting session linkage for this workout.
+        reportSessionId = null;
+        _lastEndedSessionId = null;
+        reportFrameIndex = 0;
+        reportRepsInCurrentSet = 0;
+        reportSetNumber = 1;
+        resetReportRestState(true);
 
+        // Calculate total target reps based on user settings
+        targetReps = TOTAL_SETS * REPS_PER_SET;
+        
+        // Disable settings button while workout is active
+        settingsBtn.disabled = true;
+        settingsBtn.title = 'Settings locked during workout';
+        
+        workoutStarted = true;
+      }
+
+      wsRetryCount++;
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
       const token = encodeURIComponent(Auth.getToken() || '');
       const ref = encodeURIComponent(refId || '');
@@ -1743,8 +2312,10 @@
           }
           if (data.type === 'no_pose') {
             frameInFlight = Math.max(0, frameInFlight - 1);
-            processNoResult();
-            showCoachingText('Step fully into frame');
+            if (!reportRestPaused) {
+              processNoResult();
+              showCoachingText('Step fully into frame');
+            }
             maybeSendWsFrame(false);
             return;
           }
@@ -1782,17 +2353,23 @@
       }
       ws = null;
       frameInFlight = false;
+      // Reset WebSocket retry counter so next workout can try again
+      wsRetryCount = 0;
     }
 
     function stopMatchingLoop() {
       stopWebSocketStream();
       stopHttpFallback();
+      resetReportRestState(true);
       clearOverlays();
       setScore(null);
       resetFeedbackUi();
       showCoachingText('');
       liveSmoother.reset();
       if (window.speechSynthesis) window.speechSynthesis.cancel();
+      
+      // Reset workout flag so next start is treated as fresh
+      workoutStarted = false;
 
       // Generate and show report for manual stops.
       if (sessionActive && !sessionCompleteHandled) {
@@ -2157,6 +2734,11 @@
       camBtn.disabled = false;
       refVideo.pause();
       stopMatchingLoop();
+      
+      // Re-enable settings button
+      sessionActive = false;
+      settingsBtn.disabled = false;
+      settingsBtn.title = 'Workout Settings';
 
       // Finalise reporting session if one was started and not yet ended.
       if (reportSessionId && !sessionCompleteHandled) {

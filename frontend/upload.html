@@ -817,60 +817,144 @@
         <button class="nav-logout" onclick="Auth.logout()">Logout</button>
       </div>`;
 
-    // Load categories from API
-    async function loadCategories() {
-      try {
-        const res = await fetch('/api/categories');
-        if (!res.ok) throw new Error('Failed to load categories');
-        const categories = await res.json();
-        
-        const exerciseSelect = document.getElementById('exercise');
-        const recordExerciseSelect = document.getElementById('recordExercise');
-        
-        // Clear and rebuild options
-        const buildOptions = (select) => {
-          select.innerHTML = '';
-          categories.forEach(cat => {
-            const opt = document.createElement('option');
-            opt.value = cat.name.toLowerCase().replace(/\s+/g, '_');
-            opt.textContent = cat.name;
-            select.appendChild(opt);
-          });
-          // Add "Other" fallback
-          const otherOpt = document.createElement('option');
-          otherOpt.value = 'other';
-          otherOpt.textContent = 'Other';
-          select.appendChild(otherOpt);
-        };
-        
-        buildOptions(exerciseSelect);
-        buildOptions(recordExerciseSelect);
-      } catch (err) {
-        console.error('Error loading categories:', err);
-      }
-    }
-    
-    loadCategories();
+    const ADD_NEW_CATEGORY_VALUE = '__add_new_category__';
 
-    // Suggest category form handling
+    const exerciseSelect = document.getElementById('exercise');
+    const recordExerciseSelect = document.getElementById('recordExercise');
+
     const suggestForm = document.getElementById('suggestCategoryForm');
     const cancelCategoryBtn = document.getElementById('cancelCategoryBtn');
     const submitCategoryBtn = document.getElementById('submitCategoryBtn');
     const categoryMsg = document.getElementById('categoryMsg');
+    const newCategoryNameInput = document.getElementById('newCategoryName');
+    const newCategoryDescInput = document.getElementById('newCategoryDesc');
+
+    const recordSuggestForm = document.getElementById('recordSuggestCategoryForm');
+    const recordCancelCategoryBtn = document.getElementById('recordCancelCategoryBtn');
+    const recordSubmitCategoryBtn = document.getElementById('recordSubmitCategoryBtn');
+    const recordCategoryMsg = document.getElementById('recordCategoryMsg');
+    const recordNewCategoryNameInput = document.getElementById('recordNewCategoryName');
+    const recordNewCategoryDescInput = document.getElementById('recordNewCategoryDesc');
+
+    function normalizeCategoryValue(name) {
+      return String(name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function shouldShowCategoryForm(selectValue) {
+      return selectValue === ADD_NEW_CATEGORY_VALUE || selectValue === 'other';
+    }
+
+    function formatCategoryLabel(category) {
+      if (category && category.status === 'pending') {
+        return `${category.name} (pending approval)`;
+      }
+      return category.name;
+    }
+
+    function upsertCategoryOption(select, category, selectAfter = false) {
+      const value = normalizeCategoryValue(category.name);
+      if (!value) return;
+
+      let option = Array.from(select.options).find(opt => opt.value === value);
+      if (!option) {
+        option = document.createElement('option');
+        option.value = value;
+        const addNewOption = select.querySelector(`option[value="${ADD_NEW_CATEGORY_VALUE}"]`);
+        if (addNewOption) {
+          select.insertBefore(option, addNewOption);
+        } else {
+          select.appendChild(option);
+        }
+      }
+
+      option.textContent = formatCategoryLabel(category);
+      option.dataset.status = category.status || 'approved';
+      if (category.id) {
+        option.dataset.categoryId = category.id;
+      }
+
+      if (selectAfter) {
+        select.value = value;
+      }
+    }
+
+    function buildCategoryOptions(select, categories) {
+      select.innerHTML = '';
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = categories.length
+        ? 'Select a category'
+        : 'No approved categories yet';
+      select.appendChild(placeholder);
+
+      categories.forEach(cat => upsertCategoryOption(select, cat));
+
+      const addNewOption = document.createElement('option');
+      addNewOption.value = ADD_NEW_CATEGORY_VALUE;
+      addNewOption.textContent = '+ Add new category';
+      select.appendChild(addNewOption);
+
+      select.value = categories.length ? '' : ADD_NEW_CATEGORY_VALUE;
+    }
+
+    function toggleCategoryForm(select, form, focusInput, forceHide = false) {
+      if (!form) return;
+      const shouldShow = !forceHide && shouldShowCategoryForm(select.value);
+      form.style.display = shouldShow ? 'block' : 'none';
+      if (shouldShow && focusInput) {
+        focusInput.focus();
+      }
+    }
+
+    function resetCategoryForm(nameInput, descInput, msgNode) {
+      nameInput.value = '';
+      descInput.value = '';
+      msgNode.textContent = '';
+    }
+
+    function resetSelectAfterCancel(select) {
+      const firstNormal = Array.from(select.options).find(opt => opt.value && opt.value !== ADD_NEW_CATEGORY_VALUE);
+      if (firstNormal) {
+        select.value = firstNormal.value;
+      } else {
+        select.value = '';
+      }
+    }
+
+    // Load categories from API (approved + own pending suggestions).
+    async function loadCategories() {
+      try {
+        const res = await Auth.apiFetch('/api/categories');
+        if (!res.ok) throw new Error('Failed to load categories');
+
+        const categories = await res.json();
+        const safeCategories = Array.isArray(categories) ? categories.filter(c => c && c.name) : [];
+
+        buildCategoryOptions(exerciseSelect, safeCategories);
+        buildCategoryOptions(recordExerciseSelect, safeCategories);
+      } catch (err) {
+        console.error('Error loading categories:', err);
+        buildCategoryOptions(exerciseSelect, []);
+        buildCategoryOptions(recordExerciseSelect, []);
+      }
+
+      toggleCategoryForm(exerciseSelect, suggestForm, newCategoryNameInput);
+      toggleCategoryForm(recordExerciseSelect, recordSuggestForm, recordNewCategoryNameInput);
+    }
+
+    loadCategories();
 
     cancelCategoryBtn.addEventListener('click', () => {
-      suggestForm.style.display = 'none';
-      document.getElementById('newCategoryName').value = '';
-      document.getElementById('newCategoryDesc').value = '';
-      categoryMsg.textContent = '';
-      // Reset dropdown to first option
-      document.getElementById('exercise').selectedIndex = 0;
+      resetCategoryForm(newCategoryNameInput, newCategoryDescInput, categoryMsg);
+      resetSelectAfterCancel(exerciseSelect);
+      toggleCategoryForm(exerciseSelect, suggestForm, null, true);
     });
 
     submitCategoryBtn.addEventListener('click', async () => {
-      const name = document.getElementById('newCategoryName').value.trim();
-      const description = document.getElementById('newCategoryDesc').value.trim();
-      
+      const name = newCategoryNameInput.value.trim();
+      const description = newCategoryDescInput.value.trim();
+
       if (!name) {
         categoryMsg.innerHTML = '<span style="color:#ef4444;">Please enter a category name</span>';
         return;
@@ -886,39 +970,23 @@
           body: JSON.stringify({ name, description })
         });
         const data = await res.json();
-        
+
         if (res.ok) {
-          categoryMsg.innerHTML = '<span style="color:#22c55e;">Category created! It will be used for your upload.</span>';
-          
-          // Add new category to dropdowns and select it
-          const categoryValue = name.toLowerCase().replace(/\s+/g, '_');
-          const exerciseSelect = document.getElementById('exercise');
-          const recordExerciseSelect = document.getElementById('recordExercise');
-          
-          // Add to both dropdowns (insert before "Other")
-          [exerciseSelect, recordExerciseSelect].forEach(select => {
-            const newOpt = document.createElement('option');
-            newOpt.value = categoryValue;
-            newOpt.textContent = name + ' (pending approval)';
-            newOpt.dataset.categoryId = data.id;
-            // Insert before "Other" option
-            const otherOpt = select.querySelector('option[value="other"]');
-            if (otherOpt) {
-              select.insertBefore(newOpt, otherOpt);
-            } else {
-              select.appendChild(newOpt);
-            }
-          });
-          
-          // Select the new category
-          exerciseSelect.value = categoryValue;
-          
-          document.getElementById('newCategoryName').value = '';
-          document.getElementById('newCategoryDesc').value = '';
+          const createdCategory = {
+            id: data.id,
+            name: data.name || name,
+            status: 'pending'
+          };
+
+          upsertCategoryOption(exerciseSelect, createdCategory, true);
+          upsertCategoryOption(recordExerciseSelect, createdCategory, false);
+          toggleCategoryForm(exerciseSelect, suggestForm, null, true);
+
+          resetCategoryForm(newCategoryNameInput, newCategoryDescInput, categoryMsg);
+          categoryMsg.innerHTML = '<span style="color:#22c55e;">Category submitted for approval. You can use it now.</span>';
           setTimeout(() => {
-            suggestForm.style.display = 'none';
             categoryMsg.textContent = '';
-          }, 2000);
+          }, 2200);
         } else {
           categoryMsg.innerHTML = `<span style="color:#ef4444;">${data.error || 'Failed to submit'}</span>`;
         }
@@ -930,35 +998,20 @@
       submitCategoryBtn.textContent = 'Submit for Approval';
     });
 
-    // Show category form when "Other" is selected, hide when existing category selected
-    document.getElementById('exercise').addEventListener('change', (e) => {
-      if (e.target.value === 'other') {
-        suggestForm.style.display = 'block';
-        document.getElementById('newCategoryName').focus();
-      } else {
-        suggestForm.style.display = 'none';
-      }
+    exerciseSelect.addEventListener('change', () => {
+      toggleCategoryForm(exerciseSelect, suggestForm, newCategoryNameInput);
     });
 
-    // Record mode category form elements
-    const recordSuggestForm = document.getElementById('recordSuggestCategoryForm');
-    const recordCancelCategoryBtn = document.getElementById('recordCancelCategoryBtn');
-    const recordSubmitCategoryBtn = document.getElementById('recordSubmitCategoryBtn');
-    const recordCategoryMsg = document.getElementById('recordCategoryMsg');
-
     recordCancelCategoryBtn.addEventListener('click', () => {
-      recordSuggestForm.style.display = 'none';
-      document.getElementById('recordNewCategoryName').value = '';
-      document.getElementById('recordNewCategoryDesc').value = '';
-      recordCategoryMsg.textContent = '';
-      // Reset dropdown to first option
-      document.getElementById('recordExercise').selectedIndex = 0;
+      resetCategoryForm(recordNewCategoryNameInput, recordNewCategoryDescInput, recordCategoryMsg);
+      resetSelectAfterCancel(recordExerciseSelect);
+      toggleCategoryForm(recordExerciseSelect, recordSuggestForm, null, true);
     });
 
     recordSubmitCategoryBtn.addEventListener('click', async () => {
-      const name = document.getElementById('recordNewCategoryName').value.trim();
-      const description = document.getElementById('recordNewCategoryDesc').value.trim();
-      
+      const name = recordNewCategoryNameInput.value.trim();
+      const description = recordNewCategoryDescInput.value.trim();
+
       if (!name) {
         recordCategoryMsg.innerHTML = '<span style="color:#ef4444;">Please enter a category name</span>';
         return;
@@ -974,38 +1027,23 @@
           body: JSON.stringify({ name, description })
         });
         const data = await res.json();
-        
+
         if (res.ok) {
-          recordCategoryMsg.innerHTML = '<span style="color:#22c55e;">Category created! It will be used for your upload.</span>';
-          
-          // Add new category to dropdowns and select it
-          const categoryValue = name.toLowerCase().replace(/\s+/g, '_');
-          const exerciseSelect = document.getElementById('exercise');
-          const recordExerciseSelect = document.getElementById('recordExercise');
-          
-          // Add to both dropdowns (insert before "Other")
-          [exerciseSelect, recordExerciseSelect].forEach(select => {
-            const newOpt = document.createElement('option');
-            newOpt.value = categoryValue;
-            newOpt.textContent = name + ' (pending approval)';
-            newOpt.dataset.categoryId = data.id;
-            const otherOpt = select.querySelector('option[value="other"]');
-            if (otherOpt) {
-              select.insertBefore(newOpt, otherOpt);
-            } else {
-              select.appendChild(newOpt);
-            }
-          });
-          
-          // Select the new category in record dropdown
-          recordExerciseSelect.value = categoryValue;
-          
-          document.getElementById('recordNewCategoryName').value = '';
-          document.getElementById('recordNewCategoryDesc').value = '';
+          const createdCategory = {
+            id: data.id,
+            name: data.name || name,
+            status: 'pending'
+          };
+
+          upsertCategoryOption(exerciseSelect, createdCategory, false);
+          upsertCategoryOption(recordExerciseSelect, createdCategory, true);
+          toggleCategoryForm(recordExerciseSelect, recordSuggestForm, null, true);
+
+          resetCategoryForm(recordNewCategoryNameInput, recordNewCategoryDescInput, recordCategoryMsg);
+          recordCategoryMsg.innerHTML = '<span style="color:#22c55e;">Category submitted for approval. You can use it now.</span>';
           setTimeout(() => {
-            recordSuggestForm.style.display = 'none';
             recordCategoryMsg.textContent = '';
-          }, 2000);
+          }, 2200);
         } else {
           recordCategoryMsg.innerHTML = `<span style="color:#ef4444;">${data.error || 'Failed to submit'}</span>`;
         }
@@ -1017,13 +1055,8 @@
       recordSubmitCategoryBtn.textContent = 'Submit for Approval';
     });
 
-    document.getElementById('recordExercise').addEventListener('change', (e) => {
-      if (e.target.value === 'other') {
-        recordSuggestForm.style.display = 'block';
-        document.getElementById('recordNewCategoryName').focus();
-      } else {
-        recordSuggestForm.style.display = 'none';
-      }
+    recordExerciseSelect.addEventListener('change', () => {
+      toggleCategoryForm(recordExerciseSelect, recordSuggestForm, recordNewCategoryNameInput);
     });
 
     const dropZone = document.getElementById('dropZone');
@@ -1376,6 +1409,14 @@
         fileToUpload = selectedFile;
       }
 
+      const selectedExercise = exerciseSelect.value;
+      if (!selectedExercise || selectedExercise === ADD_NEW_CATEGORY_VALUE || selectedExercise === 'other') {
+        errMsg.textContent = 'Please select an exercise category (or add a new one first).';
+        errMsg.classList.add('visible');
+        uploadBtn.disabled = false;
+        return;
+      }
+
       const formData = new FormData();
       if (fileToUpload instanceof File) {
         formData.append('video', fileToUpload);
@@ -1384,7 +1425,7 @@
         const trimmedFile = new File([fileToUpload], `trimmed_video.${ext}`, { type: fileToUpload.type });
         formData.append('video', trimmedFile);
       }
-      formData.append('exercise', document.getElementById('exercise').value);
+      formData.append('exercise', selectedExercise);
 
       document.getElementById('progressWrap').classList.add('visible');
 
@@ -1979,7 +2020,7 @@
         blobToUpload = window.recordedVideoBlob;
       }
 
-      const exercise = document.getElementById('recordExercise').value;
+      const exercise = recordExerciseSelect.value;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
       const ext = blobToUpload.type.includes('mp4') ? 'mp4' : 'webm';
@@ -1993,6 +2034,13 @@
       const recOkMsg = document.getElementById('recOkMsg');
       recErrMsg.classList.remove('visible');
       recOkMsg.classList.remove('visible');
+
+      if (!exercise || exercise === ADD_NEW_CATEGORY_VALUE || exercise === 'other') {
+        recErrMsg.textContent = 'Please select an exercise category (or add a new one first).';
+        recErrMsg.classList.add('visible');
+        uploadBtn.disabled = false;
+        return;
+      }
 
       const formData = new FormData();
       formData.append('video', videoFile);

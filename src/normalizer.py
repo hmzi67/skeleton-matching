@@ -25,6 +25,9 @@ import numpy as np
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
+# Minimum visibility for a landmark to participate in angle computation.
+_VISIBILITY_THRESHOLD = 0.5
+
 
 def _vec(a: dict, b: dict) -> np.ndarray:
     """Vector from landmark *a* to landmark *b* (3-D)."""
@@ -53,6 +56,16 @@ def compute_angle(a: dict, b: dict, c: dict) -> float:
         return 0.0
     cos_angle = np.clip(dot / mag, -1.0, 1.0)
     return float(np.degrees(np.arccos(cos_angle)))
+
+
+def _landmarks_visible(landmarks: list[dict], *indices: int) -> bool:
+    """Return True only if ALL listed landmarks meet visibility threshold."""
+    for idx in indices:
+        if idx >= len(landmarks):
+            return False
+        if landmarks[idx].get("visibility", 0.0) < _VISIBILITY_THRESHOLD:
+            return False
+    return True
 
 
 def _angle_from_vertical(v: np.ndarray) -> float:
@@ -215,25 +228,32 @@ def _compute_frame_angles(lms: list[dict]) -> dict[str, float]:
     dict[str, float]
         Mapping of joint name → angle in degrees, plus
         ``symmetry_<pair>`` ratios in [0, 1].
+        Low-visibility landmarks are skipped to avoid noisy angles.
     """
     angles: dict[str, float] = {}
 
     for name, vertex, adj_a, adj_b in _ANGLE_DEFS:
+        # Confidence filtering: skip joints with low-visibility landmarks.
+        if not _landmarks_visible(lms, vertex, adj_a, adj_b):
+            continue
         angles[name] = compute_angle(lms[adj_a], lms[vertex], lms[adj_b])
 
     # Torso lean: angle of spine vector (hip_center → shoulder_center) from
     # the vertical axis.
-    hip_center = {
-        k: (lms[23][k] + lms[24][k]) / 2.0 for k in ("x", "y", "z")
-    }
-    shoulder_center = {
-        k: (lms[11][k] + lms[12][k]) / 2.0 for k in ("x", "y", "z")
-    }
-    spine_vec = _vec(hip_center, shoulder_center)
-    angles["torso_lean"] = _angle_from_vertical(spine_vec)
+    if _landmarks_visible(lms, 11, 12, 23, 24):
+        hip_center = {
+            k: (lms[23][k] + lms[24][k]) / 2.0 for k in ("x", "y", "z")
+        }
+        shoulder_center = {
+            k: (lms[11][k] + lms[12][k]) / 2.0 for k in ("x", "y", "z")
+        }
+        spine_vec = _vec(hip_center, shoulder_center)
+        angles["torso_lean"] = _angle_from_vertical(spine_vec)
 
     # --- Symmetry ratios ---
     for left, right in _SYMMETRY_PAIRS:
+        if left not in angles or right not in angles:
+            continue
         l_val = abs(angles.get(left, 0.0))
         r_val = abs(angles.get(right, 0.0))
         max_val = max(l_val, r_val)

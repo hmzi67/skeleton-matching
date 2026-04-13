@@ -44,9 +44,21 @@ from src.feedback import generate_feedback
 from src.filters import LandmarkSmoother, HandLandmarkSmoother
 from src.matcher import match_single_frame
 from src.normalizer import normalize_skeleton, compute_hand_angles
+from src.stability import (
+    AngleSmoother,
+    FeedbackStabilizer,
+    JointStatusStabilizer,
+    build_rep_feedback,
+)
 from src.state_machine import ExerciseStateMachine
 from src.rep_tracker import FrameScore, RepTracker
 from src.report_generator import ReportGenerator
+from src.skeleton_svg import (
+    generate_skeleton_svg,
+    generate_problem_joints_svg,
+    generate_problem_joints_png,
+    generate_skeleton_svg_from_joint_accuracy,
+)
 import threading
 from werkzeug.utils import secure_filename
 
@@ -133,6 +145,21 @@ _MODEL_PATHS = {
 _DEFAULT_MODEL_TIER = os.environ.get("POSE_MODEL_TIER", "lite").strip().lower()
 LIVE_MATCH_WINDOW = max(1, int(os.environ.get("LIVE_MATCH_WINDOW", "5")))
 LIVE_MATCH_DEBUG_TIMINGS = os.environ.get("LIVE_MATCH_DEBUG_TIMINGS", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+# Live feedback stability tuning (window sizes, EMA, hysteresis, debounce).
+LIVE_ANGLE_WINDOW = max(3, int(os.environ.get("LIVE_ANGLE_WINDOW", "7")))
+LIVE_ANGLE_EMA_ALPHA = _clamp(float(os.environ.get("LIVE_ANGLE_EMA_ALPHA", "0.3")), 0.2, 0.4)
+LIVE_STATUS_HYSTERESIS = float(os.environ.get("LIVE_STATUS_HYSTERESIS", "5.0"))
+LIVE_STATUS_MAJORITY = max(3, int(os.environ.get("LIVE_STATUS_MAJORITY", "7")))
+LIVE_FEEDBACK_DEBOUNCE = max(3, int(os.environ.get("LIVE_FEEDBACK_DEBOUNCE", "7")))
+LIVE_PHASE_STABLE_FRAMES = max(2, int(os.environ.get("LIVE_PHASE_STABLE_FRAMES", "5")))
+LIVE_SPEECH_COOLDOWN_MS = max(500, int(os.environ.get("LIVE_SPEECH_COOLDOWN_MS", "2500")))
+LIVE_SMOOTH_DEBUG = os.environ.get("LIVE_SMOOTH_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _resolve_model_path() -> str:
@@ -272,6 +299,26 @@ class LiveSessionState:
     )
     hand_smoother: HandLandmarkSmoother = field(
         default_factory=lambda: HandLandmarkSmoother(min_cutoff=2.0, beta=0.1),
+    )
+    angle_smoother: AngleSmoother = field(
+        default_factory=lambda: AngleSmoother(
+            window_size=LIVE_ANGLE_WINDOW,
+            ema_alpha=LIVE_ANGLE_EMA_ALPHA,
+            debug=LIVE_SMOOTH_DEBUG,
+        ),
+    )
+    status_stabilizer: JointStatusStabilizer = field(
+        default_factory=lambda: JointStatusStabilizer(
+            hysteresis_buffer=LIVE_STATUS_HYSTERESIS,
+            majority_window=LIVE_STATUS_MAJORITY,
+        ),
+    )
+    feedback_stabilizer: FeedbackStabilizer = field(
+        default_factory=lambda: FeedbackStabilizer(
+            debounce_frames=LIVE_FEEDBACK_DEBOUNCE,
+            phase_stable_frames=LIVE_PHASE_STABLE_FRAMES,
+            speech_cooldown_ms=LIVE_SPEECH_COOLDOWN_MS,
+        ),
     )
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
@@ -926,7 +973,7 @@ def _build_session_config(
 # Bump this constant whenever weight-selection / feedback logic changes so
 # in-memory sessions from a previous app start are discarded instead of
 # silently reusing stale weights.
-LIVE_STATE_VERSION = "2026-04-06-visibility-filtering-v2"
+LIVE_STATE_VERSION = "2026-04-09-feedback-stability-v1"
 
 
 def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveSessionState:
@@ -982,6 +1029,11 @@ def _process_live_frame_message(
         if state.no_pose_frame_count >= _NO_POSE_RESET_FRAME_LIMIT:
             state.landmark_smoother.reset()
             state.hand_smoother.reset()
+            state.angle_smoother.reset()
+            state.status_stabilizer.reset()
+            state.feedback_stabilizer.reset()
+            state.last_live_angles = None
+            state.last_live_ts_ms = None
             state.no_pose_frame_count = _NO_POSE_RESET_FRAME_LIMIT
         payload = {
             "type": "no_pose",
@@ -994,6 +1046,7 @@ def _process_live_frame_message(
             "bone_statuses": {},
             "correction_arrows": [],
             "coaching_text": "Step fully into frame",
+            "speech_text": None,
             "feedback": {
                 "headline": "No pose detected",
                 "priority_fix": "Step fully into frame",
@@ -1018,7 +1071,9 @@ def _process_live_frame_message(
     t_now = time.time()
     live_landmarks = state.landmark_smoother.smooth(t_now, raw_landmarks)
     live_hand_landmarks = state.hand_smoother.smooth(t_now, raw_hand_landmarks)
-    live_angles = _extract_angles(live_landmarks, live_hand_landmarks)
+    raw_angles = _extract_angles(live_landmarks, live_hand_landmarks)
+    # Temporal smoothing: sliding window mean + EMA to reduce jitter.
+    live_angles = state.angle_smoother.update(raw_angles)
     now_ms = t_now * 1000.0
 
     _IDLE_ANGLE_THRESHOLD = 3.0
@@ -1078,6 +1133,11 @@ def _process_live_frame_message(
     state.smoothed_score = 0.5 * best_score + 0.5 * state.smoothed_score
     best_match["overall_score"] = state.smoothed_score
 
+    # Threshold buffering + majority voting for stable joint statuses.
+    best_match = state.status_stabilizer.stabilize_match(
+        best_match, adaptive_thresholds=state.adaptive_thresholds,
+    )
+
     summary_stub = {
         "overall_score": state.smoothed_score,
         "per_joint_avg_error": {},
@@ -1091,6 +1151,13 @@ def _process_live_frame_message(
     joint_statuses = _compute_joint_statuses(best_match, state.auto_weights)
     phase = state.phase_machine.update(primary_angle, state.smoothed_score,
                                        joint_statuses=joint_statuses)
+    rep_completed = state.phase_machine._last_completed_rep
+    rep_summary_text = None
+    if rep_completed is not None:
+        rep_score = state.phase_machine.rep_scores[-1] if state.phase_machine.rep_scores else 0.0
+        rep_issues = state.phase_machine.rep_joint_issues[-1] if state.phase_machine.rep_joint_issues else {}
+        rep_summary_text = build_rep_feedback(rep_completed, rep_score, rep_issues)
+
     feedback = generate_feedback(
         summary_stub, best_match,
         exercise=state.exercise,
@@ -1124,6 +1191,16 @@ def _process_live_frame_message(
         elif timing_status == "behind" and state.smoothed_score >= 85:
             coaching_text = coaching_text or "Great form!"
 
+    # Debounce + phase-gate feedback, and only speak on stable changes.
+    stable_text, speech_text = state.feedback_stabilizer.update(
+        coaching_text,
+        phase,
+        now_ms,
+        rep_summary_text=rep_summary_text,
+    )
+    coaching_text = stable_text
+    feedback["priority_fix"] = coaching_text
+
     payload = {
         "type": "frame_result",
         "pose_detected": True,
@@ -1137,6 +1214,7 @@ def _process_live_frame_message(
         "bone_statuses": bone_statuses,
         "correction_arrows": correction_arrows,
         "coaching_text": coaching_text,
+        "speech_text": speech_text,
         "connections": POSE_CONNECTIONS,
         "live_landmarks": live_landmarks,
         "live_hand_landmarks": live_hand_landmarks,
@@ -1161,10 +1239,9 @@ def _process_live_frame_message(
     }
 
     # Emit rep_completed when a rep just finished.
-    completed = state.phase_machine._last_completed_rep
-    if completed is not None:
+    if rep_completed is not None:
         payload["rep_completed"] = {
-            "rep_number": completed,
+            "rep_number": rep_completed,
             "score": state.phase_machine.rep_scores[-1] if state.phase_machine.rep_scores else 0,
             "joint_issues": state.phase_machine.rep_joint_issues[-1] if state.phase_machine.rep_joint_issues else {},
         }
@@ -1806,12 +1883,21 @@ def my_uploads():
 
 @app.route("/api/categories", methods=["GET"])
 def list_categories():
-    """List approved categories (public) or all categories (admin)."""
+    """List categories for dropdowns and admin moderation views.
+
+    Behavior:
+    - Admin + ?all=true: returns every category and moderation metadata.
+    - Public/authenticated users: approved categories plus the requester's
+      own pending suggestions (when authenticated).
+    - If no category rows exist yet, returns built-in exercise names so the
+      upload dropdown does not appear empty on fresh databases.
+    """
     auth_header = _get_bearer()
+    auth_data = _decode_token_and_session(auth_header) if auth_header else None
+    requester_user_id = auth_data.get("sub") if isinstance(auth_data, dict) else None
     is_admin = False
-    if auth_header:
-        data = _decode_token_and_session(auth_header)
-        if data and data.get("role") == "admin":
+    if auth_data:
+        if auth_data.get("role") == "admin":
             is_admin = True
 
     if is_admin and request.args.get("all") == "true":
@@ -1820,10 +1906,38 @@ def list_categories():
             order={"createdAt": "desc"},
         )
     else:
-        categories = db.category.find_many(
+        approved_categories = db.category.find_many(
             where={"status": "approved"},
             order={"name": "asc"},
         )
+        categories = list(approved_categories)
+
+        if requester_user_id:
+            pending_categories = db.category.find_many(
+                where={
+                    "suggestedById": requester_user_id,
+                    "status": "pending",
+                },
+                order={"createdAt": "desc"},
+            )
+            seen_ids = {c.id for c in categories}
+            categories.extend([c for c in pending_categories if c.id not in seen_ids])
+
+        if not categories:
+            built_in_keys = sorted(
+                key for key in EXERCISE_WEIGHTS.keys()
+                if key != "default"
+            )
+            return jsonify([{
+                "id": f"builtin:{key}",
+                "name": key.replace("_", " ").title(),
+                "description": None,
+                "status": "approved",
+                "admin_note": None,
+                "created_at": None,
+                "suggested_by": None,
+                "is_builtin": True,
+            } for key in built_in_keys])
 
     return jsonify([{
         "id":          c.id,
@@ -1836,6 +1950,7 @@ def list_categories():
             "id": c.suggestedBy.id,
             "username": c.suggestedBy.username,
         } if is_admin and hasattr(c, "suggestedBy") and c.suggestedBy else None,
+        "is_builtin": False,
     } for c in categories])
 
 
@@ -2230,6 +2345,60 @@ def _format_percent_text(value) -> str:
     return f"{round(_as_percentage(value), 1)}%"
 
 
+def _extract_problem_joints_for_report(report_payload: dict) -> list[dict]:
+    """Prefer session-level problem joints, then fall back to latest set."""
+    session_report = report_payload.get("session_report") if isinstance(report_payload.get("session_report"), dict) else {}
+    if isinstance(session_report.get("problem_joints"), list) and session_report.get("problem_joints"):
+        return session_report.get("problem_joints")
+
+    set_reports = report_payload.get("set_reports") if isinstance(report_payload.get("set_reports"), list) else []
+    for set_payload in reversed(set_reports):
+        if not isinstance(set_payload, dict):
+            continue
+        candidate = set_payload.get("problem_joints")
+        if isinstance(candidate, list) and candidate:
+            return candidate
+
+    return []
+
+
+def _append_pdf_skeleton_section(
+    story: list,
+    *,
+    Paragraph,
+    Spacer,
+    Image,
+    styles: dict,
+    problem_joints: list[dict],
+    image_width: int = 240,
+    image_height: int = 320,
+) -> None:
+    """Append skeleton visualization block into a ReportLab story."""
+    story.append(Paragraph("Joint Skeleton Visualization", styles["section"]))
+
+    if not problem_joints:
+        story.append(Paragraph("No notable joint issues detected.", styles["muted"]))
+        story.append(Spacer(1, 12))
+        return
+
+    try:
+        skeleton_png = generate_problem_joints_png(
+            problem_joints,
+            width=760,
+            height=980,
+            dark_mode=True,
+        )
+        image_flowable = Image(io.BytesIO(skeleton_png), width=image_width, height=image_height)
+        image_flowable.hAlign = "LEFT"
+        story.append(image_flowable)
+        story.append(Spacer(1, 6))
+        story.append(Paragraph("Defect points are circled and numbered to match the problem-joint ranking.", styles["muted"]))
+    except Exception:
+        story.append(Paragraph("Skeleton visualization unavailable for this report.", styles["muted"]))
+
+    story.append(Spacer(1, 12))
+
+
 def _build_exercise_report_pdf(report_data: dict) -> bytes:
     modules = _load_reportlab_modules()
     pagesizes_module = modules["pagesizes"]
@@ -2245,12 +2414,14 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     feedback_summary = _normalize_feedback_summary(report_data.get("feedback_summary", []))
     set_reports = report_data.get("set_reports") if isinstance(report_data.get("set_reports"), list) else []
     session_report = report_data.get("session_report") if isinstance(report_data.get("session_report"), dict) else None
+    problem_joints = _extract_problem_joints_for_report(report_data)
 
     Paragraph = platypus.Paragraph
     Spacer = platypus.Spacer
     Table = platypus.Table
     TableStyle = platypus.TableStyle
     SimpleDocTemplate = platypus.SimpleDocTemplate
+    Image = platypus.Image
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -2402,6 +2573,15 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     else:
         story.append(Paragraph("No global joint issues recorded.", styles["muted"]))
 
+    _append_pdf_skeleton_section(
+        story,
+        Paragraph=Paragraph,
+        Spacer=Spacer,
+        Image=Image,
+        styles=styles,
+        problem_joints=problem_joints,
+    )
+
     if session_report or set_reports:
         story.append(Spacer(1, 14))
         story.append(Paragraph("Linked Full Session", styles["section"]))
@@ -2484,11 +2664,20 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
     Table = platypus.Table
     TableStyle = platypus.TableStyle
     SimpleDocTemplate = platypus.SimpleDocTemplate
+    Image = platypus.Image
 
     session = report_data.get("session") or {}
     set_reports = report_data.get("set_reports") if isinstance(report_data.get("set_reports"), list) else []
     session_report = report_data.get("session_report") if isinstance(report_data.get("session_report"), dict) else {}
     problem_joints = session_report.get("problem_joints") if isinstance(session_report.get("problem_joints"), list) else []
+    if not problem_joints:
+        for set_payload in reversed(set_reports):
+            if not isinstance(set_payload, dict):
+                continue
+            candidate = set_payload.get("problem_joints")
+            if isinstance(candidate, list) and candidate:
+                problem_joints = candidate
+                break
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -2619,6 +2808,15 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
         story.append(problem_table)
     else:
         story.append(Paragraph("No notable joint issues detected.", styles["muted"]))
+
+    _append_pdf_skeleton_section(
+        story,
+        Paragraph=Paragraph,
+        Spacer=Spacer,
+        Image=Image,
+        styles=styles,
+        problem_joints=problem_joints,
+    )
 
     doc.build(story)
     return buffer.getvalue()
@@ -3228,6 +3426,121 @@ def session_download_report_pdf(session_id: str):
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.route("/api/session/<session_id>/skeleton-svg", methods=["GET"])
+@require_auth
+def session_skeleton_svg(session_id: str):
+    """
+    Generate an SVG skeleton diagram showing joint accuracy for a session.
+    
+    Query params:
+        width: SVG width in pixels (default 300)
+        height: SVG height in pixels (default 400)
+        dark: Use dark mode (default true)
+    """
+    is_admin = request.user.get("role") == "admin"
+    
+    bundle = _fetch_session_bundle(
+        session_id,
+        requester_user_id=request.user["sub"],
+        is_admin=is_admin,
+    )
+    if not bundle:
+        return jsonify({"error": "session not found"}), 404
+    
+    # Get parameters
+    try:
+        width = int(request.args.get("width", 300))
+        height = int(request.args.get("height", 400))
+    except ValueError:
+        width, height = 300, 400
+    dark_mode = request.args.get("dark", "true").lower() != "false"
+    
+    session_payload = bundle.get("session") if isinstance(bundle.get("session"), dict) else {}
+    session_report = bundle.get("session_report") if isinstance(bundle.get("session_report"), dict) else {}
+
+    problem_joints = (
+        session_report.get("problem_joints")
+        if isinstance(session_report.get("problem_joints"), list)
+        else []
+    )
+
+    if not problem_joints:
+        set_reports = bundle.get("set_reports") if isinstance(bundle.get("set_reports"), list) else []
+        for set_payload in reversed(set_reports):
+            if not isinstance(set_payload, dict):
+                continue
+            candidate = set_payload.get("problem_joints")
+            if isinstance(candidate, list) and candidate:
+                problem_joints = candidate
+                break
+
+    exercise_name = session_report.get("exercise") if isinstance(session_report.get("exercise"), str) else None
+    if not exercise_name:
+        exercise_name = session_payload.get("exercise_name") if isinstance(session_payload.get("exercise_name"), str) else "Exercise"
+    
+    # Generate SVG
+    svg = generate_problem_joints_svg(
+        problem_joints,
+        width=width,
+        height=height,
+        title=f"{exercise_name} - Joint Accuracy",
+        dark_mode=dark_mode,
+    )
+    
+    return svg, 200, {"Content-Type": "image/svg+xml"}
+
+
+@app.route("/api/set/<set_id>/skeleton-svg", methods=["GET"])
+@require_auth
+def set_skeleton_svg(set_id: str):
+    """
+    Generate an SVG skeleton diagram showing joint accuracy for a specific set.
+    
+    Query params:
+        width: SVG width in pixels (default 300)
+        height: SVG height in pixels (default 400)
+        dark: Use dark mode (default true)
+    """
+    set_report = db.setreport.find_unique(
+        where={"id": set_id},
+        include={"session": True},
+    )
+    if not set_report:
+        return jsonify({"error": "set not found"}), 404
+    
+    is_admin = request.user.get("role") == "admin"
+    if not is_admin and set_report.session.userId != request.user["sub"]:
+        return jsonify({"error": "access denied"}), 403
+    
+    # Get parameters
+    try:
+        width = int(request.args.get("width", 300))
+        height = int(request.args.get("height", 400))
+    except ValueError:
+        width, height = 300, 400
+    dark_mode = request.args.get("dark", "true").lower() != "false"
+    
+    # Parse report JSON
+    try:
+        report_data = json.loads(set_report.reportJson) if set_report.reportJson else {}
+    except json.JSONDecodeError:
+        report_data = {}
+    
+    problem_joints = report_data.get("problem_joints", [])
+    set_num = report_data.get("set_number", set_report.setNumber)
+    exercise = report_data.get("exercise", set_report.session.exerciseName)
+    
+    svg = generate_problem_joints_svg(
+        problem_joints,
+        width=width,
+        height=height,
+        title=f"Set {set_num} - {exercise}",
+        dark_mode=dark_mode,
+    )
+    
+    return svg, 200, {"Content-Type": "image/svg+xml"}
 
 
 @app.route("/api/sessions", methods=["GET"])

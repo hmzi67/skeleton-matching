@@ -6,54 +6,160 @@
   <title>Session Report — Pose Matcher</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .report-wrap { max-width: 1100px; margin: 0 auto; padding: 24px; color: #eaeaea; }
-    .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding: 18px 22px; background: #1c1c22; border-radius: 12px; }
-    .report-header h1 { margin: 0 0 6px 0; font-size: 22px; }
-    .report-header .meta { color: #9aa0a6; font-size: 13px; }
-    .header-actions { display: flex; align-items: center; gap: 10px; }
-    .download-btn { border: none; border-radius: 8px; padding: 8px 12px; background: #2d5e8f; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
-    .download-btn:hover { background: #3b78b8; }
-    .grade-badge { padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 14px; }
-    .grade-Excellent { background: #1f6f3e; color: #d4ffe0; }
-    .grade-Good      { background: #2d5e8f; color: #d8ecff; }
-    .grade-Needs     { background: #8b6a1f; color: #ffeac4; }
-    .grade-Poor      { background: #8b2a2a; color: #ffd5d5; }
-    .partial-pill    { display: inline-block; margin-left: 10px; padding: 3px 9px; border-radius: 999px; background: #444; color: #ffd; font-size: 11px; }
-    .set-card { background: #1c1c22; border-radius: 12px; padding: 18px 22px; margin-bottom: 18px; }
-    .set-card h2 { margin: 0 0 12px 0; font-size: 16px; display: flex; gap: 12px; align-items: center; }
-    .set-acc { font-weight: 700; color: #fff; }
-    .reps-row { display: flex; align-items: flex-end; gap: 8px; height: 140px; padding: 12px 0; }
-    .rep-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-    .rep-bar { width: 100%; background: #444; border-radius: 4px 4px 0 0; min-height: 4px; transition: height .3s; }
-    .rep-bar.good { background: #4caf50; }
-    .rep-bar.mid  { background: #ffc107; }
-    .rep-bar.bad  { background: #f44336; }
-    .rep-label { font-size: 10px; color: #9aa0a6; }
-    .rep-pct { font-size: 11px; color: #ddd; font-weight: 600; }
-    .joints-panel { background: #1c1c22; border-radius: 12px; padding: 18px 22px; margin-bottom: 18px; }
-    .joints-panel h2 { margin: 0 0 14px 0; font-size: 16px; }
-    .joint-row { display: grid; grid-template-columns: 180px 1fr 80px 90px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid #2a2a30; }
-    .joint-row:last-child { border-bottom: none; }
-    .joint-bar-track { background: #2a2a30; height: 12px; border-radius: 6px; overflow: hidden; }
-    .joint-bar-fill { height: 100%; border-radius: 6px; }
-    .sev-mild     { background: #ffc107; }
-    .sev-moderate { background: #ff8c2a; }
-    .sev-critical { background: #f44336; }
-    .sev-pill { padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center; }
-    .pill-mild     { background: #4a3d12; color: #ffe9a8; }
-    .pill-moderate { background: #5a3411; color: #ffd2a8; }
-    .pill-critical { background: #5a1414; color: #ffc4c4; }
-    .summary-row { display: flex; gap: 24px; padding: 14px 22px; background: #1c1c22; border-radius: 12px; }
-    .summary-stat { flex: 1; }
-    .summary-stat .label { color: #9aa0a6; font-size: 12px; }
-    .summary-stat .value { font-size: 22px; font-weight: 700; color: #fff; }
-    .empty { color: #9aa0a6; font-style: italic; padding: 12px 0; }
+    .report-wrap { max-width: 1340px; margin: 0 auto; padding: 24px; color: #eaeaea; }
+    .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; padding: 22px 28px; background: linear-gradient(135deg, #1a1f2e 0%, #141824 100%); border-radius: 16px; border: 1px solid #2a3346; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); }
+    .report-header h1 { margin: 0 0 6px 0; font-size: 24px; font-weight: 700; color: #f8fafc; }
+    .report-header .meta { color: #94a3b8; font-size: 13px; }
+    .header-actions { display: flex; align-items: center; gap: 14px; }
+    .download-btn { border: none; border-radius: 10px; padding: 10px 18px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3); transition: all 0.2s ease; }
+    .download-btn:hover { background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
+    .grade-badge { padding: 8px 18px; border-radius: 999px; font-weight: 700; font-size: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+    .grade-Excellent { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: #f0fdf4; }
+    .grade-Good      { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #eff6ff; }
+    .grade-Needs     { background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%); color: #fefce8; }
+    .grade-Poor      { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fef2f2; }
+    .partial-pill    { display: inline-block; margin-left: 12px; padding: 4px 12px; border-radius: 999px; background: #475569; color: #f1f5f9; font-size: 11px; font-weight: 600; }
+    
+    .set-card { background: linear-gradient(135deg, #1a1f2e 0%, #141824 100%); border-radius: 16px; padding: 22px 28px; margin-bottom: 20px; border: 1px solid #2a3346; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
+    .set-card h2 { margin: 0 0 16px 0; font-size: 17px; display: flex; gap: 14px; align-items: center; color: #f1f5f9; }
+    .set-acc { font-weight: 700; color: #60a5fa; }
+    .reps-row { display: flex; align-items: flex-end; gap: 10px; height: 160px; padding: 16px 0; }
+    .rep-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .rep-bar { width: 100%; background: #334155; border-radius: 6px 6px 0 0; min-height: 6px; transition: height .3s ease, background .3s ease; }
+    .rep-bar.good { background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%); box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
+    .rep-bar.mid  { background: linear-gradient(180deg, #eab308 0%, #ca8a04 100%); box-shadow: 0 0 10px rgba(234, 179, 8, 0.3); }
+    .rep-bar.bad  { background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+    .rep-label { font-size: 11px; color: #94a3b8; font-weight: 500; }
+    .rep-pct { font-size: 12px; color: #e2e8f0; font-weight: 700; }
+    
+    /* Analysis grid - skeleton + joints side by side */
+    .analysis-grid { display: grid; grid-template-columns: 480px 1fr; gap: 28px; margin-bottom: 24px; }
+    @media (max-width: 950px) { .analysis-grid { grid-template-columns: 1fr; } }
+    
+    .skeleton-panel { background: linear-gradient(160deg, #0f172a 0%, #0a1628 100%); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; align-items: center; border: 1px solid #1e3a5f; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.03); }
+    .skeleton-panel h2 { margin: 0 0 16px 0; font-size: 18px; align-self: flex-start; color: #e2e8f0; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .skeleton-panel h2::before { content: ''; width: 4px; height: 18px; background: linear-gradient(180deg, #3b82f6, #60a5fa); border-radius: 2px; }
+    .skeleton-container { display: flex; justify-content: center; align-items: center; width: 100%; min-height: 580px; }
+    .skeleton-container.zoomable { cursor: pointer; border: 2px solid #1e3a5f; border-radius: 16px; padding: 12px; background: radial-gradient(ellipse at 50% 20%, #0f2744 0%, #0a1628 70%); transition: all .25s ease; position: relative; }
+    .skeleton-container.zoomable::after { content: 'Click to enlarge'; position: absolute; bottom: 12px; right: 12px; font-size: 11px; color: #64748b; background: rgba(15, 23, 42, 0.8); padding: 4px 10px; border-radius: 6px; opacity: 0; transition: opacity 0.2s ease; }
+    .skeleton-container.zoomable:hover { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15), 0 12px 40px rgba(0, 0, 0, 0.4); transform: translateY(-2px); }
+    .skeleton-container.zoomable:hover::after { opacity: 1; }
+    .skeleton-container svg { max-width: 100%; height: auto; border-radius: 12px; }
+    .skeleton-container .empty { margin: 0; }
+    .skeleton-loading { color: #94a3b8; font-size: 14px; padding: 80px 24px; text-align: center; }
+    .skeleton-hint { margin-top: 12px; font-size: 12px; color: #64748b; align-self: flex-start; display: flex; align-items: center; gap: 6px; }
+    .skeleton-hint svg { width: 14px; height: 14px; }
+
+    /* Enhanced zoom popover */
+    .skeleton-zoom-popover {
+      position: fixed;
+      right: 20px;
+      top: 80px;
+      width: min(62vw, 960px);
+      max-height: calc(100vh - 100px);
+      display: none;
+      z-index: 500;
+    }
+    .skeleton-zoom-popover.visible { display: block; animation: slideIn 0.2s ease; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    .skeleton-zoom-card {
+      background: linear-gradient(160deg, #0f172a 0%, #0a1628 100%);
+      border: 1px solid #1e3a5f;
+      border-radius: 20px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(59, 130, 246, 0.1);
+      overflow: hidden;
+    }
+    .skeleton-zoom-head {
+      padding: 14px 20px;
+      font-size: 14px;
+      color: #e2e8f0;
+      font-weight: 600;
+      border-bottom: 1px solid #1e3a5f;
+      background: linear-gradient(90deg, rgba(59, 130, 246, 0.1), transparent);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .skeleton-zoom-head::before { content: '🦴'; }
+    .skeleton-zoom-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 680px;
+      max-height: calc(100vh - 180px);
+      padding: 16px;
+      overflow: auto;
+      background: #0a1628;
+    }
+    .skeleton-zoom-content svg {
+      width: min(900px, 100%);
+      height: auto;
+      border-radius: 12px;
+    }
+    @media (max-width: 1180px) {
+      .skeleton-zoom-popover {
+        left: 16px;
+        right: 16px;
+        width: auto;
+      }
+      .skeleton-zoom-content { min-height: 520px; }
+    }
+    
+    /* Improved joints panel */
+    .joints-panel { background: linear-gradient(135deg, #1a1f2e 0%, #141824 100%); border-radius: 20px; padding: 24px 28px; border: 1px solid #2a3346; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
+    .joints-panel h2 { margin: 0 0 20px 0; font-size: 18px; color: #f1f5f9; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .joints-panel h2::before { content: ''; width: 4px; height: 18px; background: linear-gradient(180deg, #f97316, #fb923c); border-radius: 2px; }
+    
+    .joint-row { display: grid; grid-template-columns: 180px 1fr 70px 100px; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px; background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(51, 65, 85, 0.5); transition: all 0.2s ease; }
+    .joint-row:hover { background: rgba(30, 41, 59, 0.8); border-color: rgba(51, 65, 85, 0.8); transform: translateX(4px); }
+    .joint-row > div:first-child { color: #f1f5f9; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    .joint-row > div:first-child::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .joint-row.sev-mild > div:first-child::before { background: #facc15; }
+    .joint-row.sev-moderate > div:first-child::before { background: #f97316; }
+    .joint-row.sev-critical > div:first-child::before { background: #ef4444; }
+    
+    .joint-bar-track { background: #1e293b; height: 14px; border-radius: 7px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3); }
+    .joint-bar-fill { height: 100%; border-radius: 7px; transition: width 0.4s ease; }
+    .sev-mild     { background: linear-gradient(90deg, #facc15 0%, #fde047 100%); }
+    .sev-moderate { background: linear-gradient(90deg, #f97316 0%, #fb923c 100%); }
+    .sev-critical { background: linear-gradient(90deg, #ef4444 0%, #f87171 100%); }
+    
+    .joint-error-pct { font-weight: 700; font-size: 14px; color: #e2e8f0; }
+    
+    .sev-pill { padding: 5px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+    .pill-mild     { background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); }
+    .pill-moderate { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+    .pill-critical { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    
+    .summary-row { display: flex; gap: 20px; padding: 20px 28px; background: linear-gradient(135deg, #1a1f2e 0%, #141824 100%); border-radius: 16px; border: 1px solid #2a3346; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
+    .summary-stat { flex: 1; text-align: center; padding: 8px 0; }
+    .summary-stat .label { color: #94a3b8; font-size: 12px; font-weight: 500; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .summary-stat .value { font-size: 28px; font-weight: 700; color: #f8fafc; }
+    .summary-stat:not(:last-child) { border-right: 1px solid #334155; }
+    
+    .empty { color: #64748b; font-style: italic; padding: 16px 0; }
+    
+    /* No issues state */
+    .no-issues { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px; text-align: center; }
+    .no-issues-icon { width: 64px; height: 64px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3); }
+    .no-issues-icon svg { width: 32px; height: 32px; color: white; }
+    .no-issues h3 { margin: 0 0 8px 0; color: #22c55e; font-size: 18px; }
+    .no-issues p { margin: 0; color: #64748b; font-size: 14px; }
   </style>
 </head>
 <body>
   <div class="report-wrap">
     <div id="report-root">
       <p class="empty">Loading report…</p>
+    </div>
+  </div>
+
+  <div id="skeleton-zoom-popover" class="skeleton-zoom-popover" aria-hidden="true">
+    <div class="skeleton-zoom-card">
+      <div class="skeleton-zoom-head">Joint Analysis - Enlarged View</div>
+      <div id="skeleton-zoom-content" class="skeleton-zoom-content">
+        <p class="skeleton-loading">Click on skeleton to load enlarged view...</p>
+      </div>
     </div>
   </div>
 
@@ -84,6 +190,9 @@
     }
 
     root.innerHTML = renderReport(data);
+    
+    // Load skeleton SVG after rendering
+    await loadSkeletonSvg(sessionId);
   })();
 
   function gradeClass(grade) {
@@ -120,7 +229,9 @@
           <div class="meta">${dateStr}</div>
         </div>
         <div class="header-actions">
-          <button class="download-btn" onclick="downloadSessionReportPdf()">Download PDF</button>
+          <button class="download-btn" onclick="downloadSessionReportPdf()">
+            <span style="margin-right: 6px;">📄</span> Download PDF
+          </button>
           <div class="grade-badge ${gradeClass(overallGrade)}">${overallGrade} · ${pct(overallAcc)}%</div>
         </div>
       </div>
@@ -135,9 +246,9 @@
       html += renderSetCard(sr);
     });
 
-    // Problem joints panel — prefer the session report's ranking; fall back to last set's.
+    // Problem joints panel with skeleton visualization
     const problems = (sessionReport && sessionReport.problem_joints) || (setReports.slice(-1)[0]?.problem_joints || []);
-    html += renderJointsPanel(problems);
+    html += renderAnalysisSection(problems, session.id);
 
     if (sessionReport) {
       html += `
@@ -156,7 +267,7 @@
   function renderSetCard(sr) {
     const reps = sr.reps || [];
     const repsHtml = reps.map(r => {
-      const h = Math.max(4, Math.round((r.accuracy || 0) * 120));
+      const h = Math.max(6, Math.round((r.accuracy || 0) * 140));
       return `
         <div class="rep-col">
           <div class="rep-pct">${pct(r.accuracy)}%</div>
@@ -174,19 +285,176 @@
     `;
   }
 
+  function renderAnalysisSection(joints, sessionId) {
+    if (!joints || joints.length === 0) {
+      return `
+        <div class="analysis-grid">
+          <div class="skeleton-panel">
+            <h2>Joint Analysis</h2>
+            <div class="skeleton-container zoomable" id="skeleton-container-${sessionId}">
+              <p class="skeleton-loading">Loading skeleton...</p>
+            </div>
+            <div class="skeleton-hint">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              Click to enlarge skeleton view
+            </div>
+          </div>
+          <div class="joints-panel">
+            <h2>Problem Joints</h2>
+            <div class="no-issues">
+              <div class="no-issues-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              </div>
+              <h3>Great Form!</h3>
+              <p>No significant joint issues detected in this session.</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    const rows = joints.map(j => `
+      <div class="joint-row sev-${j.severity}">
+        <div>${j.label}</div>
+        <div class="joint-bar-track"><div class="joint-bar-fill sev-${j.severity}" style="width:${Math.min(100, j.error_pct)}%"></div></div>
+        <div class="joint-error-pct">${j.error_pct}%</div>
+        <div class="sev-pill pill-${j.severity}">${j.severity}</div>
+      </div>
+    `).join('');
+    
+    return `
+      <div class="analysis-grid">
+        <div class="skeleton-panel">
+          <h2>Joint Analysis</h2>
+          <div class="skeleton-container zoomable" id="skeleton-container-${sessionId}">
+            <p class="skeleton-loading">Loading skeleton...</p>
+          </div>
+          <div class="skeleton-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            Click to enlarge skeleton view
+          </div>
+        </div>
+        <div class="joints-panel">
+          <h2>Problem Joints</h2>
+          ${rows}
+        </div>
+      </div>
+    `;
+  }
+
   function renderJointsPanel(joints) {
     if (!joints || joints.length === 0) {
       return `<div class="joints-panel"><h2>Problem joints</h2><p class="empty">No notable issues detected.</p></div>`;
     }
     const rows = joints.map(j => `
-      <div class="joint-row">
+      <div class="joint-row sev-${j.severity}">
         <div>${j.label}</div>
         <div class="joint-bar-track"><div class="joint-bar-fill sev-${j.severity}" style="width:${Math.min(100, j.error_pct)}%"></div></div>
-        <div>${j.error_pct}%</div>
+        <div class="joint-error-pct">${j.error_pct}%</div>
         <div class="sev-pill pill-${j.severity}">${j.severity}</div>
       </div>
     `).join('');
     return `<div class="joints-panel"><h2>Problem joints</h2>${rows}</div>`;
+  }
+
+  let skeletonZoomVisible = false;
+
+  function hideSkeletonZoomPopover() {
+    const popover = document.getElementById('skeleton-zoom-popover');
+    if (!popover) return;
+    popover.classList.remove('visible');
+    popover.setAttribute('aria-hidden', 'true');
+    skeletonZoomVisible = false;
+  }
+
+  function toggleSkeletonZoomPopover(sessionId) {
+    const popover = document.getElementById('skeleton-zoom-popover');
+    if (!popover) return;
+
+    if (skeletonZoomVisible) {
+      hideSkeletonZoomPopover();
+    } else {
+      showSkeletonZoomPopover(sessionId);
+    }
+  }
+
+  async function showSkeletonZoomPopover(sessionId) {
+    const popover = document.getElementById('skeleton-zoom-popover');
+    const zoomContent = document.getElementById('skeleton-zoom-content');
+    if (!popover || !zoomContent) return;
+
+    popover.classList.add('visible');
+    popover.setAttribute('aria-hidden', 'false');
+    skeletonZoomVisible = true;
+
+    if (zoomContent.dataset.loadedSessionId === sessionId) {
+      return;
+    }
+
+    zoomContent.innerHTML = '<p class="skeleton-loading">Loading enlarged skeleton...</p>';
+    try {
+      const res = await Auth.apiFetch(`/api/session/${encodeURIComponent(sessionId)}/skeleton-svg?width=960&height=1280`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const svgText = await res.text();
+      zoomContent.innerHTML = svgText;
+      zoomContent.dataset.loadedSessionId = sessionId;
+    } catch (e) {
+      console.error('Failed to load enlarged skeleton SVG:', e);
+      zoomContent.innerHTML = '<p class="empty">Failed to load enlarged skeleton.</p>';
+      delete zoomContent.dataset.loadedSessionId;
+    }
+  }
+
+  function setupSkeletonClickZoom(sessionId) {
+    const trigger = document.getElementById(`skeleton-container-${sessionId}`);
+    const popover = document.getElementById('skeleton-zoom-popover');
+    if (!trigger || !popover) return;
+
+    if (trigger.dataset.zoomBound === 'true') return;
+    trigger.dataset.zoomBound = 'true';
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSkeletonZoomPopover(sessionId);
+    });
+
+    // Close popover when clicking outside
+    document.addEventListener('click', (e) => {
+      if (skeletonZoomVisible && !popover.contains(e.target) && !trigger.contains(e.target)) {
+        hideSkeletonZoomPopover();
+      }
+    });
+
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && skeletonZoomVisible) {
+        hideSkeletonZoomPopover();
+      }
+    });
+  }
+
+  async function loadSkeletonSvg(sessionId) {
+    const container = document.getElementById(`skeleton-container-${sessionId}`);
+    if (!container) return;
+    
+    try {
+      const res = await Auth.apiFetch(`/api/session/${encodeURIComponent(sessionId)}/skeleton-svg?width=480&height=660`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const svgText = await res.text();
+      container.innerHTML = svgText;
+      setupSkeletonClickZoom(sessionId);
+    } catch (e) {
+      console.error('Failed to load skeleton SVG:', e);
+      container.innerHTML = '<p class="empty">Failed to load skeleton visualization</p>';
+    }
   }
 
   async function downloadSessionReportPdf() {

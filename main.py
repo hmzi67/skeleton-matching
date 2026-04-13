@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -29,6 +30,7 @@ from src.extractor import extract_skeleton_from_video, load_skeleton, save_skele
 from src.feedback import generate_feedback, generate_session_report
 from src.matcher import compute_summary, match_single_frame, match_video_sequence
 from src.normalizer import normalize_skeleton
+from src.stability import AngleSmoother, FeedbackStabilizer, JointStatusStabilizer
 from src.visualizer import (
     create_side_by_side,
     draw_feedback_overlay,
@@ -228,15 +230,26 @@ def _run_live(gt_path: str) -> None:
     # --- Smoothing / stability state ---
 
     # Exponential moving average for the displayed score.
-    _EMA_ALPHA = 0.3  # lower = smoother (0.3 gives ~3-frame lag)
+    _SCORE_EMA_ALPHA = 0.3  # lower = smoother (0.3 gives ~3-frame lag)
     smoothed_score: float = 50.0
 
-    # Feedback debouncing: only change displayed instruction when the
-    # same joint has been the worst for N consecutive frames.
-    _DEBOUNCE_FRAMES = 10
-    _last_instruction: str = ""
-    _current_worst_joint: str = ""
-    _worst_joint_streak: int = 0
+    # Angle smoothing + feedback stability (window + EMA + hysteresis + debounce).
+    _ANGLE_WINDOW = 7
+    _ANGLE_EMA_ALPHA = 0.3
+    _STATUS_HYSTERESIS = 5.0
+    _STATUS_MAJORITY = 7
+    _FEEDBACK_DEBOUNCE = 7
+
+    angle_smoother = AngleSmoother(window_size=_ANGLE_WINDOW, ema_alpha=_ANGLE_EMA_ALPHA)
+    status_stabilizer = JointStatusStabilizer(
+        hysteresis_buffer=_STATUS_HYSTERESIS,
+        majority_window=_STATUS_MAJORITY,
+    )
+    feedback_stabilizer = FeedbackStabilizer(
+        debounce_frames=_FEEDBACK_DEBOUNCE,
+        phase_stable_frames=1,
+        speech_cooldown_ms=0,
+    )
 
     # GT video pacing: advance every N webcam frames.
     # With webcam ~30fps, GT_ADVANCE_EVERY=2 → GT plays at ~15fps.
@@ -290,27 +303,17 @@ def _run_live(gt_path: str) -> None:
             user_norm = normalize_skeleton([user_frame_raw])
 
             if user_norm:
-                result = match_single_frame(gt_norm_frame, user_norm[0])
+                user_angles = user_norm[0].get("angles", {})
+                smoothed_angles = angle_smoother.update(user_angles)
+
+                # Use smoothed angles for matching to reduce jitter.
+                result = match_single_frame(gt_norm_frame, {"angles": smoothed_angles})
+                status_stabilizer.stabilize_match(result)
+
                 raw_score = result["overall_score"]
 
                 # --- EMA score smoothing ---
-                smoothed_score = _EMA_ALPHA * raw_score + (1 - _EMA_ALPHA) * smoothed_score
-
-                # --- Feedback debouncing ---
-                joint_fb_list = []
-                for j in result:
-                    if isinstance(result[j], dict) and "status" in result[j]:
-                        if result[j]["status"] != "good":
-                            joint_fb_list.append((j, result[j]["abs_diff"]))
-                joint_fb_list.sort(key=lambda x: x[1], reverse=True)
-
-                if joint_fb_list:
-                    new_worst = joint_fb_list[0][0]
-                    if new_worst == _current_worst_joint:
-                        _worst_joint_streak += 1
-                    else:
-                        _current_worst_joint = new_worst
-                        _worst_joint_streak = 1
+                smoothed_score = _SCORE_EMA_ALPHA * raw_score + (1 - _SCORE_EMA_ALPHA) * smoothed_score
 
                 # Use smoothed score in the feedback.
                 result_smoothed = dict(result)
@@ -325,15 +328,23 @@ def _run_live(gt_path: str) -> None:
                 }
                 feedback = generate_feedback(summary_stub, result_smoothed)
 
-                # Only change the displayed instruction after debounce period.
-                if feedback.get("joint_feedback"):
-                    new_instruction = feedback["joint_feedback"][0]["instruction"]
-                    if _worst_joint_streak >= _DEBOUNCE_FRAMES or not _last_instruction:
-                        _last_instruction = new_instruction
-                    else:
-                        feedback["joint_feedback"][0]["instruction"] = _last_instruction
-                elif smoothed_score >= 90:
-                    _last_instruction = "Awesome Job!"
+                joint_fb = feedback.get("joint_feedback", [])
+                candidate_text = joint_fb[0]["instruction"] if joint_fb else (
+                    "Great form!" if smoothed_score >= 90 else feedback.get("priority_fix", "")
+                )
+                stable_text, _ = feedback_stabilizer.update(
+                    candidate_text,
+                    "READY",
+                    time.time() * 1000.0,
+                )
+
+                if stable_text:
+                    if joint_fb:
+                        joint_fb[0]["instruction"] = stable_text
+                    feedback["priority_fix"] = stable_text
+                else:
+                    feedback["joint_feedback"] = []
+                    feedback["priority_fix"] = ""
 
                 feedback["overall_score"] = int(smoothed_score)
                 score_history.append(smoothed_score)
@@ -345,8 +356,14 @@ def _run_live(gt_path: str) -> None:
                 )
                 cv2.imshow("Pose Matcher - Live", combined)
             else:
+                angle_smoother.reset()
+                status_stabilizer.reset()
+                feedback_stabilizer.reset()
                 _show_raw_side_by_side(frame, gt_frame_img)
         else:
+            angle_smoother.reset()
+            status_stabilizer.reset()
+            feedback_stabilizer.reset()
             _show_raw_side_by_side(frame, gt_frame_img)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
