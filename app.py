@@ -1131,6 +1131,19 @@ def _process_live_frame_message(
     if not best_match:
         return {"type": "error", "error": "matching_failed"}
 
+    # Guard against inflated scores while the user stays mostly static.
+    # HOLD can be legitimately stable, so allow a slightly higher cap there.
+    if user_is_idle:
+        _IDLE_READY_SCORE_CAP = 55.0
+        _IDLE_HOLD_SCORE_CAP = 75.0
+        idle_cap = (
+            _IDLE_HOLD_SCORE_CAP
+            if state.phase_machine.phase == "HOLD"
+            else _IDLE_READY_SCORE_CAP
+        )
+        best_score = min(best_score, idle_cap)
+        best_match["overall_score"] = best_score
+
     aligner.update_after_match(best_idx, ref_time_ms, state.ref_timestamps_ms)
     if state.smoothed_score is None:
         state.smoothed_score = best_score

@@ -247,6 +247,14 @@ _EXERCISE_ALIASES: dict[str, str] = {
     "dumbbell_curl":   "bicep_curl",
     # Shoulder press
     "shoulder_presses":"shoulder_press",
+    "shoulder_up":    "shoulder_press",
+    "shoulderup":     "shoulder_press",
+    "shoulder_raise": "shoulder_press",
+    "shoulder_raises":"shoulder_press",
+    "shoulder_lift":  "shoulder_press",
+    "shoulder_lifts": "shoulder_press",
+    "arm_raise":      "shoulder_press",
+    "arm_raises":     "shoulder_press",
     "overhead_press":  "shoulder_press",
     # Pushup
     "pushups":         "pushup",

@@ -1049,6 +1049,23 @@
       color: #0f0f0f;
     }
 
+    .calendar-day.selected {
+      background: #2dd4bf !important;
+      color: #0f0f0f !important;
+      font-weight: 700;
+      box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.38);
+    }
+
+    .calendar-day.selected .reminder-dot {
+      background: #0f0f0f;
+      box-shadow: none;
+    }
+
+    .calendar-day:focus-visible {
+      outline: 2px solid #2dd4bf;
+      outline-offset: 2px;
+    }
+
     .calendar-day.has-reminder {
       box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.55);
     }
@@ -1559,7 +1576,7 @@
               <div class="chart-header">
                 <div>
                   <div class="chart-title">Exercise Breakdown</div>
-                  <div class="chart-subtitle">Performance by exercise type</div>
+                  <div class="chart-subtitle" id="exerciseBreakdownSubtitle">Select a day to see completed exercises</div>
                 </div>
               </div>
               <div class="activity-list" id="exerciseBreakdown"></div>
@@ -1733,6 +1750,7 @@
     let currentVideoFilter = 'pending';
     let currentCategoryFilter = 'pending';
     let currentCalendarDate = new Date();
+    let selectedProfileDateKey = null;
     let dashboardUploadFile = null;
     let dashboardUploadPreviewUrl = '';
     let dashboardUploadHandlersBound = false;
@@ -2620,6 +2638,11 @@
 
     // Profile Section
     function loadProfileSection() {
+      ensureSelectedProfileDate();
+      const selectedDate = parseDateKey(selectedProfileDateKey);
+      if (selectedDate) {
+        currentCalendarDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+      }
       renderCalendar();
       renderExerciseBreakdown();
       renderReminderManager();
@@ -2747,10 +2770,94 @@
       window.location.href = link;
     }
 
+    function toLocalDateKey(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function parseDateKey(dateKey) {
+      if (!dateKey || typeof dateKey !== 'string') return null;
+      const [yearRaw, monthRaw, dayRaw] = dateKey.split('-');
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      const day = Number(dayRaw);
+      if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+      const parsed = new Date(year, month - 1, day);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return parsed;
+    }
+
+    function isSameLocalDay(left, right) {
+      return left.getFullYear() === right.getFullYear()
+        && left.getMonth() === right.getMonth()
+        && left.getDate() === right.getDate();
+    }
+
+    function ensureSelectedProfileDate() {
+      if (selectedProfileDateKey && parseDateKey(selectedProfileDateKey)) return;
+
+      const latestReportDate = reports.length > 0 ? new Date(reports[0].created_at) : null;
+      if (latestReportDate && !Number.isNaN(latestReportDate.getTime())) {
+        selectedProfileDateKey = toLocalDateKey(latestReportDate);
+        return;
+      }
+
+      selectedProfileDateKey = toLocalDateKey(new Date());
+    }
+
+    function formatSelectedDateLabel(dateKey) {
+      const parsed = parseDateKey(dateKey);
+      if (!parsed) return 'Selected day';
+      return parsed.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    }
+
+    function getReportsForDateKey(dateKey) {
+      const selectedDate = parseDateKey(dateKey);
+      if (!selectedDate) return [];
+
+      return reports.filter((report) => {
+        const reportDate = new Date(report.created_at);
+        if (Number.isNaN(reportDate.getTime())) return false;
+        return isSameLocalDay(reportDate, selectedDate);
+      });
+    }
+
+    function selectCalendarDate(year, month, day) {
+      selectedProfileDateKey = toLocalDateKey(new Date(year, month, day));
+      currentCalendarDate = new Date(year, month, 1);
+      renderCalendar();
+      renderExerciseBreakdown();
+    }
+
+    function handleCalendarDayKeydown(event, year, month, day) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      selectCalendarDate(year, month, day);
+    }
+
+    function syncSelectedDateToVisibleMonth() {
+      ensureSelectedProfileDate();
+      const selectedDate = parseDateKey(selectedProfileDateKey) || new Date();
+      const year = currentCalendarDate.getFullYear();
+      const month = currentCalendarDate.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const safeDay = Math.min(selectedDate.getDate(), daysInMonth);
+      selectedProfileDateKey = toLocalDateKey(new Date(year, month, safeDay));
+    }
+
     function renderCalendar() {
+      ensureSelectedProfileDate();
       const grid = document.getElementById('calendarGrid');
       const year = currentCalendarDate.getFullYear();
       const month = currentCalendarDate.getMonth();
+      const selectedDate = parseDateKey(selectedProfileDateKey);
 
       document.getElementById('calendarMonth').textContent = 
         currentCalendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -2785,15 +2892,20 @@
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       dayNames.forEach(day => html += `<div class="calendar-day-header">${day}</div>`);
 
-      for (let i = 0; i < firstDay; i++) html += `<div class="calendar-day"></div>`;
+      for (let i = 0; i < firstDay; i++) html += `<div class="calendar-day" aria-hidden="true"></div>`;
 
       for (let day = 1; day <= daysInMonth; day++) {
         const isToday = year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
         const activity = monthActivity[day];
         const remindersForDay = monthReminders[day] || [];
+        const isSelected = selectedDate
+          && year === selectedDate.getFullYear()
+          && month === selectedDate.getMonth()
+          && day === selectedDate.getDate();
         
         let classes = 'calendar-day current-month';
         if (isToday) classes += ' today';
+        if (isSelected) classes += ' selected';
         
         if (activity) {
           const avgScore = activity.totalScore / activity.sessions;
@@ -2818,7 +2930,14 @@
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
 
-        html += `<div class="${classes}" ${remindersForDay.length > 0 ? `data-tooltip="${escapedTitle}"` : ''}><span>${day}</span>${remindersForDay.length > 0 ? '<span class="reminder-dot"></span>' : ''}</div>`;
+        const ariaLabel = new Date(year, month, day).toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        });
+
+        html += `<div class="${classes}" role="button" tabindex="0" aria-label="${ariaLabel}" aria-pressed="${isSelected ? 'true' : 'false'}" onclick="selectCalendarDate(${year}, ${month}, ${day})" onkeydown="handleCalendarDayKeydown(event, ${year}, ${month}, ${day})" ${remindersForDay.length > 0 ? `data-tooltip="${escapedTitle}"` : ''}><span>${day}</span>${remindersForDay.length > 0 ? '<span class="reminder-dot"></span>' : ''}</div>`;
       }
 
       grid.innerHTML = html;
@@ -2826,24 +2945,37 @@
 
     function prevMonth() {
       currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+      syncSelectedDateToVisibleMonth();
       renderCalendar();
+      renderExerciseBreakdown();
     }
 
     function nextMonth() {
       currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+      syncSelectedDateToVisibleMonth();
       renderCalendar();
+      renderExerciseBreakdown();
     }
 
     function renderExerciseBreakdown() {
       const list = document.getElementById('exerciseBreakdown');
+      const subtitle = document.getElementById('exerciseBreakdownSubtitle');
+      ensureSelectedProfileDate();
+      const selectedReports = getReportsForDateKey(selectedProfileDateKey);
+      const selectedLabel = formatSelectedDateLabel(selectedProfileDateKey);
+
+      if (subtitle) {
+        const sessionLabel = selectedReports.length === 1 ? 'session' : 'sessions';
+        subtitle.textContent = `${selectedLabel} • ${selectedReports.length} ${sessionLabel}`;
+      }
       
-      if (reports.length === 0) {
-        list.innerHTML = '<div class="empty-state">No exercise data</div>';
+      if (selectedReports.length === 0) {
+        list.innerHTML = `<div class="empty-state">No exercises completed on ${selectedLabel}.</div>`;
         return;
       }
 
       const stats = {};
-      reports.forEach(r => {
+      selectedReports.forEach(r => {
         if (!stats[r.exercise]) stats[r.exercise] = { sessions: 0, totalScore: 0 };
         stats[r.exercise].sessions++;
         stats[r.exercise].totalScore += r.avg_score;

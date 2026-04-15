@@ -216,8 +216,9 @@
 
         grid.innerHTML = exercises.map(e => {
           const name = e.exercise.replace(/_/g, ' ');
+          const exerciseKey = e.exercise_key || e.exercise;
           const href = loggedIn
-            ? `/exercise?exercise=${encodeURIComponent(e.exercise)}&ref=${e.video_id}`
+            ? `/exercise?exercise=${encodeURIComponent(exerciseKey)}&ref=${e.video_id}`
             : `/login`;
           const uploaderName = e.uploader?.username || 'unknown';
           return `
@@ -225,10 +226,10 @@
               <video class="ex-thumbnail" src="/api/video/${e.video_id}" preload="metadata" muted playsinline></video>
               <div class="ex-body">
                 <div class="ex-header">
-                  <div class="ex-icon">${ICONS[e.exercise] || ICONS.default}</div>
+                  <div class="ex-icon">${ICONS[exerciseKey] || ICONS[e.exercise] || ICONS.default}</div>
                   <div class="ex-info">
                     <div class="ex-name">${name}</div>
-                    <div class="ex-sub">${DESC[e.exercise] || 'Exercise'}</div>
+                    <div class="ex-sub">${DESC[exerciseKey] || DESC[e.exercise] || 'Exercise'}</div>
                   </div>
                 </div>
                 <div class="ex-uploader">
