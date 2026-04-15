@@ -43,7 +43,7 @@ from src.extractor import extract_skeleton_from_video, load_skeleton
 from src.feedback import generate_feedback
 from src.filters import LandmarkSmoother, HandLandmarkSmoother
 from src.matcher import match_single_frame
-from src.normalizer import normalize_skeleton, compute_hand_angles
+from src.normalizer import normalize_skeleton, compute_hand_angles, reconcile_hand_sides
 from src.stability import (
     AngleSmoother,
     FeedbackStabilizer,
@@ -88,6 +88,7 @@ ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB limit
 SKELETON_CACHE_DIR = Path("data/cache/reference_skeletons")
 SKELETON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_REFERENCE_NORM_CACHE_VERSION = 3
 REMINDER_FALLBACK_FILE = Path("data/reminders.json")
 if not REMINDER_FALLBACK_FILE.exists():
     REMINDER_FALLBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -102,7 +103,7 @@ POSE_CONNECTIONS = [
 
 # Minimum visibility confidence for a landmark to be used in angle computation.
 # Landmarks below this threshold produce unreliable angles that tank the score.
-_VISIBILITY_THRESHOLD = 0.5
+_VISIBILITY_THRESHOLD = 0.35
 
 _ANGLE_JOINTS = [
     ("left_elbow", 13, 11, 15),
@@ -143,7 +144,7 @@ _MODEL_PATHS = {
     "heavy": _MODEL_DIR / "pose_landmarker_heavy.task",
 }
 _DEFAULT_MODEL_TIER = os.environ.get("POSE_MODEL_TIER", "lite").strip().lower()
-LIVE_MATCH_WINDOW = max(1, int(os.environ.get("LIVE_MATCH_WINDOW", "5")))
+LIVE_MATCH_WINDOW = max(1, int(os.environ.get("LIVE_MATCH_WINDOW", "8")))
 LIVE_MATCH_DEBUG_TIMINGS = os.environ.get("LIVE_MATCH_DEBUG_TIMINGS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -207,8 +208,8 @@ class TemporalAligner:
     smoothed_offset_ms: float = 0.0
     _prev_ref_time_ms: float = 0.0
     _offset_ema_alpha: float = 0.15
-    _forward_window: int = 8
-    _backward_tolerance: int = 3
+    _forward_window: int = 12
+    _backward_tolerance: int = 5
 
     def compute_search_range(
         self,
@@ -286,7 +287,7 @@ class LiveSessionState:
     primary_joint: str = "left_knee"
     primary_min: float = 120.0
     primary_max: float = 170.0
-    smoothed_score: float = 0.0
+    smoothed_score: float | None = None
     last_live_angles: dict[str, float] | None = None
     last_live_ts_ms: float | None = None
     no_pose_frame_count: int = 0
@@ -461,6 +462,8 @@ def _extract_pose_and_hands(
                 for lm in hand_lms.landmark
             ]
 
+    hand_lms_dict = reconcile_hand_sides(pose_landmarks, hand_lms_dict)
+
     return pose_landmarks, hand_lms_dict
 
 
@@ -543,6 +546,7 @@ def _extract_angles(
 
     # Hand angles — finger curl per detected hand.
     if hand_landmarks:
+        hand_landmarks = reconcile_hand_sides(landmarks, hand_landmarks)
         left_hand  = hand_landmarks.get("left")
         right_hand = hand_landmarks.get("right")
         if left_hand:
@@ -583,14 +587,15 @@ def _resolve_video_path(video_id: str) -> Path | None:
 
 
 def _load_or_extract_reference_norm(video_id: str) -> list[dict]:
-    if video_id in _reference_norm_cache:
-        return _reference_norm_cache[video_id]
+    cache_key = f"v{_REFERENCE_NORM_CACHE_VERSION}:{video_id}"
+    if cache_key in _reference_norm_cache:
+        return _reference_norm_cache[cache_key]
 
-    cache_path = SKELETON_CACHE_DIR / f"{video_id}.normalized.json"
+    cache_path = SKELETON_CACHE_DIR / f"{video_id}.normalized.v{_REFERENCE_NORM_CACHE_VERSION}.json"
     if cache_path.exists():
         with open(cache_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            _reference_norm_cache[video_id] = data
+            _reference_norm_cache[cache_key] = data
             return data
 
     video_path = _resolve_video_path(video_id)
@@ -607,7 +612,7 @@ def _load_or_extract_reference_norm(video_id: str) -> list[dict]:
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(normalized, f)
 
-    _reference_norm_cache[video_id] = normalized
+    _reference_norm_cache[cache_key] = normalized
     return normalized
 
 
@@ -1032,6 +1037,7 @@ def _process_live_frame_message(
             state.angle_smoother.reset()
             state.status_stabilizer.reset()
             state.feedback_stabilizer.reset()
+            state.smoothed_score = None
             state.last_live_angles = None
             state.last_live_ts_ms = None
             state.no_pose_frame_count = _NO_POSE_RESET_FRAME_LIMIT
@@ -1078,7 +1084,6 @@ def _process_live_frame_message(
 
     _IDLE_ANGLE_THRESHOLD = 3.0
     _IDLE_FRAME_LIMIT = 10
-    _IDLE_SCORE_CAP = 30.0
 
     if state.last_live_angles is not None:
         total_angle_change = sum(
@@ -1126,11 +1131,11 @@ def _process_live_frame_message(
     if not best_match:
         return {"type": "error", "error": "matching_failed"}
 
-    if user_is_idle:
-        best_score = min(best_score, _IDLE_SCORE_CAP)
-
     aligner.update_after_match(best_idx, ref_time_ms, state.ref_timestamps_ms)
-    state.smoothed_score = 0.5 * best_score + 0.5 * state.smoothed_score
+    if state.smoothed_score is None:
+        state.smoothed_score = best_score
+    else:
+        state.smoothed_score = 0.5 * best_score + 0.5 * state.smoothed_score
     best_match["overall_score"] = state.smoothed_score
 
     # Threshold buffering + majority voting for stable joint statuses.
@@ -3569,4 +3574,4 @@ def list_sessions():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

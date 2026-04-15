@@ -35,6 +35,14 @@ _WARNING_THRESHOLD = 25  # degrees — within this → "warning"; beyond → "ba
 # Maximum angle penalty per joint (caps contribution so score ∈ [0, 100]).
 _MAX_PENALTY_PER_JOINT = 45.0
 
+# Small natural style differences should not tank score.
+_POSE_ANGLE_TOLERANCE_DEG = 5.0
+_HAND_ANGLE_TOLERANCE_DEG = 8.0
+
+# Missing-joint penalty should be gentle unless coverage is extremely low.
+_COVERAGE_NO_PENALTY = 0.70
+_COVERAGE_SOFT_FLOOR = 0.50
+
 # ---------------------------------------------------------------------------
 # Velocity thresholds (informational only — NOT included in score)
 # ---------------------------------------------------------------------------
@@ -55,6 +63,27 @@ _SYMMETRY_PAIRS = [
 ]
 
 _SYMMETRY_THRESHOLD = 0.85  # ratio below this flags asymmetry
+
+
+def _angle_tolerance_for_joint(joint: str) -> float:
+    """Return scoring dead-zone (degrees) for a joint."""
+    if joint in _HAND_JOINT_NAMES:
+        return _HAND_ANGLE_TOLERANCE_DEG
+    return _POSE_ANGLE_TOLERANCE_DEG
+
+
+def _soft_coverage_factor(coverage: float) -> float:
+    """Map coverage [0,1] to a soft score multiplier.
+
+    Coverage >= _COVERAGE_NO_PENALTY receives no penalty.
+    Below that, scale down gradually with a floor to avoid collapsing scores
+    for otherwise-correct form when some joints are intermittently unavailable.
+    """
+    c = max(0.0, min(1.0, coverage))
+    if c >= _COVERAGE_NO_PENALTY:
+        return 1.0
+    ratio = c / _COVERAGE_NO_PENALTY if _COVERAGE_NO_PENALTY > 1e-9 else 1.0
+    return _COVERAGE_SOFT_FLOOR + (1.0 - _COVERAGE_SOFT_FLOOR) * ratio
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +234,10 @@ def match_single_frame(
         }
 
         # Per-joint normalised score (0.0–1.0) and raw error for reporting.
-        capped = min(abs_diff, _MAX_PENALTY_PER_JOINT)
+        # A small dead-zone keeps natural movement style differences from
+        # being over-penalized.
+        effective_abs_diff = max(0.0, abs_diff - _angle_tolerance_for_joint(joint))
+        capped = min(effective_abs_diff, _MAX_PENALTY_PER_JOINT)
         joint_scores[joint] = round(1.0 - (capped / _MAX_PENALTY_PER_JOINT), 4)
         joint_errors[joint] = round(abs_diff, 2)
 
@@ -223,21 +255,25 @@ def match_single_frame(
     if max_angle_penalty > 0:
         raw_score = max(0.0, 100.0 * (1.0 - total_weighted_penalty / max_angle_penalty))
 
-        # Coverage penalty: if only a fraction of the expected joints were
-        # actually scored, scale the score down proportionally. This prevents
-        # a 100% score when most joints are undetected (e.g. user too close
-        # to camera so hand landmarks are missing for a hand exercise).
+        # Coverage penalty: compute weighted coverage and apply a soft factor.
+        # This keeps scores stable when a few joints flicker out of view,
+        # while still penalizing sustained low-observability sessions.
         if exercise_weights is not None:
-            expected_joints = [j for j in ALL_JOINT_NAMES
-                               if exercise_weights.get(j, 0.0) > 0]
+            expected_weight_sum = sum(
+                max(0.0, exercise_weights.get(j, 0.0)) for j in ALL_JOINT_NAMES
+            )
+            observed_weight_sum = sum(
+                max(0.0, exercise_weights.get(j, 0.0)) for j in active_joints
+            )
+            coverage = (
+                observed_weight_sum / expected_weight_sum
+                if expected_weight_sum > 1e-9 else 1.0
+            )
         else:
-            # No explicit weights — only pose joints are expected.
-            expected_joints = list(_JOINT_NAMES)
-        if expected_joints:
-            coverage = len(scored_joints) / len(expected_joints)
-            # Apply a soft penalty: score × coverage^0.5 so partial detection
-            # still gives partial credit rather than a cliff-edge drop.
-            raw_score *= (coverage ** 0.5)
+            pose_observed = len([j for j in active_joints if j in _JOINT_NAMES])
+            coverage = pose_observed / len(_JOINT_NAMES) if _JOINT_NAMES else 1.0
+
+        raw_score *= _soft_coverage_factor(coverage)
 
         overall_score = raw_score
     else:

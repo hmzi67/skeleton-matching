@@ -177,6 +177,153 @@ _HAND_ANGLE_DEFS: list[tuple[str, int, int, int]] = [
 ]
 
 
+def _valid_hand_wrist(hand_lms: list[dict]) -> dict | None:
+    """Return the wrist landmark for a detected hand when valid."""
+    if not hand_lms:
+        return None
+    wrist = hand_lms[0]
+    if not isinstance(wrist, dict):
+        return None
+    if not all(k in wrist for k in ("x", "y", "z")):
+        return None
+    return wrist
+
+
+def _valid_pose_point(
+    pose_landmarks: list[dict] | None,
+    idx: int,
+    *,
+    min_visibility: float = 0.1,
+) -> dict | None:
+    """Return a pose point when coordinates and visibility are usable."""
+    if not pose_landmarks or idx >= len(pose_landmarks):
+        return None
+    point = pose_landmarks[idx]
+    if not isinstance(point, dict):
+        return None
+    if not all(k in point for k in ("x", "y", "z")):
+        return None
+    if point.get("visibility", 1.0) < min_visibility:
+        return None
+    return point
+
+
+def _side_anchor(pose_landmarks: list[dict] | None, side: str) -> dict | None:
+    """Pick the best available anchor for anatomical left/right side."""
+    # Prefer wrist, then elbow, then shoulder, then hip.
+    if side == "left":
+        indices = (15, 13, 11, 23)
+    else:
+        indices = (16, 14, 12, 24)
+    for idx in indices:
+        point = _valid_pose_point(pose_landmarks, idx)
+        if point is not None:
+            return point
+    return None
+
+
+def _distance_xy(a: dict, b: dict) -> float:
+    """2-D distance in image space."""
+    return math.sqrt((a["x"] - b["x"]) ** 2 + (a["y"] - b["y"]) ** 2)
+
+
+def reconcile_hand_sides(
+    pose_landmarks: list[dict] | None,
+    hand_landmarks: dict[str, list[dict] | None] | None,
+) -> dict[str, list[dict] | None]:
+    """Map detected hands to anatomical left/right using pose context.
+
+    Raw MediaPipe hand labels can flip depending on capture orientation. This
+    helper reconciles side labels with pose landmarks so feedback references
+    the correct user hand.
+    """
+    resolved: dict[str, list[dict] | None] = {"left": None, "right": None}
+    if not hand_landmarks:
+        return resolved
+
+    detected: list[tuple[str, list[dict]]] = []
+    for side in ("left", "right"):
+        hand = hand_landmarks.get(side)
+        if isinstance(hand, list) and hand:
+            detected.append((side, hand))
+
+    if not detected:
+        return resolved
+
+    # Without pose context, preserve detector-provided labels.
+    if not pose_landmarks:
+        for side, hand in detected[:2]:
+            resolved[side] = hand
+        return resolved
+
+    left_anchor = _side_anchor(pose_landmarks, "left")
+    right_anchor = _side_anchor(pose_landmarks, "right")
+
+    # One-hand case.
+    if len(detected) == 1:
+        original_side, hand = detected[0]
+        hand_wrist = _valid_hand_wrist(hand)
+        if hand_wrist is None:
+            resolved[original_side] = hand
+            return resolved
+
+        if left_anchor is not None and right_anchor is not None:
+            side = "left" if _distance_xy(hand_wrist, left_anchor) <= _distance_xy(hand_wrist, right_anchor) else "right"
+        elif left_anchor is not None:
+            side = "left"
+        elif right_anchor is not None:
+            side = "right"
+        else:
+            side = original_side
+        resolved[side] = hand
+        return resolved
+
+    # Two-hand case.
+    (first_side, first_hand), (second_side, second_hand) = detected[:2]
+    first_wrist = _valid_hand_wrist(first_hand)
+    second_wrist = _valid_hand_wrist(second_hand)
+    if first_wrist is None or second_wrist is None:
+        resolved[first_side] = first_hand
+        resolved[second_side] = second_hand
+        return resolved
+
+    if left_anchor is not None and right_anchor is not None:
+        native_cost = _distance_xy(first_wrist, left_anchor) + _distance_xy(second_wrist, right_anchor)
+        swapped_cost = _distance_xy(first_wrist, right_anchor) + _distance_xy(second_wrist, left_anchor)
+        if native_cost <= swapped_cost:
+            resolved["left"] = first_hand
+            resolved["right"] = second_hand
+        else:
+            resolved["left"] = second_hand
+            resolved["right"] = first_hand
+        return resolved
+
+    # Fallback: if only one side anchor is available, assign nearest hand to
+    # that side and the other hand to the opposite side.
+    if left_anchor is not None:
+        if _distance_xy(first_wrist, left_anchor) <= _distance_xy(second_wrist, left_anchor):
+            resolved["left"] = first_hand
+            resolved["right"] = second_hand
+        else:
+            resolved["left"] = second_hand
+            resolved["right"] = first_hand
+        return resolved
+
+    if right_anchor is not None:
+        if _distance_xy(first_wrist, right_anchor) <= _distance_xy(second_wrist, right_anchor):
+            resolved["right"] = first_hand
+            resolved["left"] = second_hand
+        else:
+            resolved["right"] = second_hand
+            resolved["left"] = first_hand
+        return resolved
+
+    # No pose anchors available: keep detector labels.
+    resolved[first_side] = first_hand
+    resolved[second_side] = second_hand
+    return resolved
+
+
 def _compute_hand_angles(hand_lms: list[dict], prefix: str) -> dict[str, float]:
     """Compute finger curl angles for one hand.
 
@@ -371,7 +518,7 @@ def normalize_skeleton(skeleton_data: list[dict]) -> list[dict]:
         angles = _compute_frame_angles(rotated)
 
         # --- 4b. HAND ANGLES (when available) ------------------------------
-        hand_data = frame.get("hand_landmarks") or {}
+        hand_data = reconcile_hand_sides(lms, frame.get("hand_landmarks"))
         left_hand = hand_data.get("left")
         right_hand = hand_data.get("right")
         if left_hand:
@@ -384,7 +531,7 @@ def normalize_skeleton(skeleton_data: list[dict]) -> list[dict]:
                 "frame_index": frame["frame_index"],
                 "timestamp_ms": frame["timestamp_ms"],
                 "landmarks": frame["landmarks"],           # keep originals
-                "hand_landmarks": frame.get("hand_landmarks", {"left": None, "right": None}),
+                "hand_landmarks": hand_data,
                 "normalized_landmarks": rotated,
                 "angles": angles,
             }

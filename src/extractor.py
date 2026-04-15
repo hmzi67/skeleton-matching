@@ -37,6 +37,7 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from src.normalizer import reconcile_hand_sides
 
 # ---------------------------------------------------------------------------
 # Model path (heavy = model_complexity ≈ 2)
@@ -229,6 +230,8 @@ def extract_skeleton_from_video(
                                 }
                                 for lm in hand_lms.landmark
                             ]
+
+                    hand_lms_dict = reconcile_hand_sides(landmarks_list, hand_lms_dict)
 
                     skeleton_data.append(
                         {
