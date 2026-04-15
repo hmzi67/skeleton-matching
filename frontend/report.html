@@ -111,25 +111,29 @@
     .joints-panel h2::before { content: ''; width: 4px; height: 18px; background: linear-gradient(180deg, #f97316, #fb923c); border-radius: 2px; }
     
     .joint-row { display: grid; grid-template-columns: 180px 1fr 70px 100px; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 12px; margin-bottom: 10px; background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(51, 65, 85, 0.5); transition: all 0.2s ease; }
-    .joint-row:hover { background: rgba(30, 41, 59, 0.8); border-color: rgba(51, 65, 85, 0.8); transform: translateX(4px); }
+    .joint-row:hover { border-color: rgba(96, 165, 250, 0.55); transform: translateX(4px); }
     .joint-row > div:first-child { color: #f1f5f9; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
     .joint-row > div:first-child::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
     .joint-row.sev-mild > div:first-child::before { background: #facc15; }
     .joint-row.sev-moderate > div:first-child::before { background: #f97316; }
     .joint-row.sev-critical > div:first-child::before { background: #ef4444; }
     
+    .joint-row.sev-mild { background: linear-gradient(90deg, rgba(113, 63, 18, 0.42) 0%, rgba(30, 41, 59, 0.68) 100%); border-color: rgba(250, 204, 21, 0.35); }
+    .joint-row.sev-moderate { background: linear-gradient(90deg, rgba(124, 45, 18, 0.5) 0%, rgba(30, 41, 59, 0.68) 100%); border-color: rgba(251, 146, 60, 0.45); }
+    .joint-row.sev-critical { background: linear-gradient(90deg, rgba(127, 29, 29, 0.56) 0%, rgba(30, 41, 59, 0.68) 100%); border-color: rgba(248, 113, 113, 0.5); }
+
     .joint-bar-track { background: #1e293b; height: 14px; border-radius: 7px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3); }
     .joint-bar-fill { height: 100%; border-radius: 7px; transition: width 0.4s ease; }
-    .sev-mild     { background: linear-gradient(90deg, #facc15 0%, #fde047 100%); }
-    .sev-moderate { background: linear-gradient(90deg, #f97316 0%, #fb923c 100%); }
-    .sev-critical { background: linear-gradient(90deg, #ef4444 0%, #f87171 100%); }
+    .joint-bar-fill.sev-mild     { background: linear-gradient(90deg, #facc15 0%, #fde047 100%); }
+    .joint-bar-fill.sev-moderate { background: linear-gradient(90deg, #f97316 0%, #fb923c 100%); }
+    .joint-bar-fill.sev-critical { background: linear-gradient(90deg, #ef4444 0%, #f87171 100%); }
     
     .joint-error-pct { font-weight: 700; font-size: 14px; color: #e2e8f0; }
     
-    .sev-pill { padding: 5px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
-    .pill-mild     { background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); }
-    .pill-moderate { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
-    .pill-critical { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .sev-pill { padding: 6px 14px; border-radius: 999px; font-size: 11px; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: 0.6px; }
+    .pill-mild     { background: #111827; color: #fef08a; border: 1px solid rgba(250, 204, 21, 0.75); }
+    .pill-moderate { background: #111827; color: #fdba74; border: 1px solid rgba(251, 146, 60, 0.78); }
+    .pill-critical { background: #111827; color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.82); }
     
     .summary-row { display: flex; gap: 20px; padding: 20px 28px; background: linear-gradient(135deg, #1a1f2e 0%, #141824 100%); border-radius: 16px; border: 1px solid #2a3346; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
     .summary-stat { flex: 1; text-align: center; padding: 8px 0; }
@@ -172,7 +176,7 @@
     const sessionId = params.get('session');
     const root = document.getElementById('report-root');
 
-    if (!sessionId) {
+    if (!sessionId || sessionId === 'null' || sessionId === 'undefined') {
       root.innerHTML = '<p class="empty">No session id provided.</p>';
       return;
     }

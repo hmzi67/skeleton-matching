@@ -1340,6 +1340,9 @@
       } else {
         overlay.querySelector('#pm-next-set').onclick = async () => {
           resetReportRestState(true);
+          if (_isValidSessionId(reportSessionId)) {
+            _lastEndedSessionId = reportSessionId;
+          }
           const sessionReport = await reportSessionEnd(true);
           reportSessionId = null;
           showSessionEndScreen(sessionReport);
@@ -1349,7 +1352,7 @@
     }
 
     async function showSessionEndScreen(sessionReport) {
-      const sid = reportSessionId || _lastEndedSessionId;
+      const sid = _currentLinkedSessionId();
       
       // Calculate local stats as fallback
       const localScores = scoreHistory.filter(s => typeof s === 'number');
@@ -1430,6 +1433,10 @@
       // Calculate actual completed sets (use setReports if available, else use local tracking)
       const completedSets = setReports.length > 0 ? setReports.length : Math.max(0, reportSetNumber - 1);
       const displayTotalReps = totalReps > 0 ? totalReps : currentRepCount;
+
+      const fullReportAction = sid
+        ? `<a href="/report.html?session=${encodeURIComponent(sid)}" style="padding:14px 28px;border-radius:10px;background:linear-gradient(135deg,#2dd4bf,#14b8a6);color:#0f0f0f;text-decoration:none;font-weight:700;font-size:14px;">📄 Full Report</a>`
+        : `<span style="padding:14px 28px;border-radius:10px;background:#2a2a30;color:#8a8a92;font-weight:700;font-size:14px;cursor:not-allowed;" title="Session report unavailable for this run">📄 Full Report Unavailable</span>`;
 
       const overlay = document.createElement('div');
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;padding:20px;overflow-y:auto;';
@@ -1512,7 +1519,7 @@
           
           <!-- Action Buttons -->
           <div style="display:flex;gap:12px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
-            <a href="/report.html?session=${sid}" style="padding:14px 28px;border-radius:10px;background:linear-gradient(135deg,#2dd4bf,#14b8a6);color:#0f0f0f;text-decoration:none;font-weight:700;font-size:14px;">📄 Full Report</a>
+            ${fullReportAction}
             <button onclick="location.reload()" style="padding:14px 28px;border-radius:10px;background:#4caf50;color:#fff;border:none;font-weight:700;cursor:pointer;font-size:14px;">🔄 Try Again</button>
             <a href="/profile" style="padding:14px 28px;border-radius:10px;background:#2a2a30;color:#d4d4d4;text-decoration:none;font-weight:700;font-size:14px;">👤 My Profile</a>
           </div>
@@ -1521,6 +1528,16 @@
       document.body.appendChild(overlay);
     }
     let _lastEndedSessionId = null;
+
+    function _isValidSessionId(value) {
+      return typeof value === 'string' && value.length > 0 && value !== 'null' && value !== 'undefined';
+    }
+
+    function _currentLinkedSessionId() {
+      if (_isValidSessionId(reportSessionId)) return reportSessionId;
+      if (_isValidSessionId(_lastEndedSessionId)) return _lastEndedSessionId;
+      return null;
+    }
 
 
     // MediaPipe connections for skeleton drawing
@@ -2478,7 +2495,7 @@
       
       // Save report to backend
       try {
-        const linkedSessionId = reportSessionId || _lastEndedSessionId || null;
+        const linkedSessionId = _currentLinkedSessionId();
         await Auth.apiFetch('/api/reports', {
           method: 'POST',
           body: JSON.stringify({

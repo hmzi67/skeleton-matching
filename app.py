@@ -2359,6 +2359,76 @@ def _build_pdf_styles(styles_module, colors_module):
     }
 
 
+def _build_pdf_palette(colors_module) -> dict[str, object]:
+    return {
+        "header_bg": colors_module.HexColor("#0f172a"),
+        "header_text": colors_module.HexColor("#f8fafc"),
+        "header_muted": colors_module.HexColor("#cbd5e1"),
+        "panel_bg": colors_module.HexColor("#f8fafc"),
+        "panel_bg_alt": colors_module.HexColor("#f1f5f9"),
+        "panel_border": colors_module.HexColor("#cbd5e1"),
+        "table_header_bg": colors_module.HexColor("#1e293b"),
+        "table_header_text": colors_module.HexColor("#f8fafc"),
+        "table_row_a": colors_module.HexColor("#ffffff"),
+        "table_row_b": colors_module.HexColor("#f8fafc"),
+        "accent_teal": colors_module.HexColor("#0f766e"),
+        "accent_info": colors_module.HexColor("#2563eb"),
+        "text_main": colors_module.HexColor("#0f172a"),
+        "text_muted": colors_module.HexColor("#64748b"),
+    }
+
+
+def _table_style_professional(
+    *,
+    TableStyle,
+    palette: dict[str, object],
+    header_bg=None,
+    header_text=None,
+    right_align_cols: list[int] | None = None,
+):
+    style = TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), header_bg or palette["table_header_bg"]),
+        ("TEXTCOLOR", (0, 0), (-1, 0), header_text or palette["table_header_text"]),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [palette["table_row_a"], palette["table_row_b"]]),
+        ("TEXTCOLOR", (0, 1), (-1, -1), palette["text_main"]),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 1), (-1, -1), 8.7),
+        ("BOX", (0, 0), (-1, -1), 0.8, palette["panel_border"]),
+        ("INNERGRID", (0, 0), (-1, -1), 0.55, palette["panel_border"]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ])
+    for col in right_align_cols or []:
+        style.add("ALIGN", (col, 1), (col, -1), "RIGHT")
+    return style
+
+
+def _build_pdf_page_callback(colors_module, footer_title: str):
+    line_color = colors_module.HexColor("#dbe3ef")
+    text_color = colors_module.HexColor("#64748b")
+
+    def _callback(canvas, doc):
+        canvas.saveState()
+        width, _ = doc.pagesize
+        footer_y = 18
+        canvas.setStrokeColor(line_color)
+        canvas.setLineWidth(0.6)
+        canvas.line(doc.leftMargin, footer_y + 10, width - doc.rightMargin, footer_y + 10)
+
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(text_color)
+        canvas.drawString(doc.leftMargin, footer_y, footer_title)
+        canvas.drawRightString(width - doc.rightMargin, footer_y, f"Page {canvas.getPageNumber()}")
+        canvas.restoreState()
+
+    return _callback
+
+
 def _format_percent_text(value) -> str:
     return f"{round(_as_percentage(value), 1)}%"
 
@@ -2424,6 +2494,7 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     styles_module = modules["styles"]
     platypus = modules["platypus"]
     styles = _build_pdf_styles(styles_module, colors_module)
+    palette = _build_pdf_palette(colors_module)
 
     score_history = _normalize_numeric_list(report_data.get("score_history", []))
     rep_scores = _normalize_numeric_list(report_data.get("rep_scores", []))
@@ -2463,8 +2534,8 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
         colWidths=[390, 130],
     )
     header.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (1, 0), colors_module.HexColor("#0f172a")),
-        ("BOX", (0, 0), (-1, -1), 1, colors_module.HexColor("#0f172a")),
+        ("BACKGROUND", (0, 0), (1, 0), palette["header_bg"]),
+        ("BOX", (0, 0), (-1, -1), 1, palette["header_bg"]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (0, 0), 14),
         ("RIGHTPADDING", (1, 0), (1, 0), 12),
@@ -2472,18 +2543,31 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
     ]))
     story.append(header)
-
-    meta = Paragraph(
-        (
-            f"User: <b>{user.get('username', 'unknown')}</b> &nbsp;&nbsp; "
-            f"Exercise: <b>{report_data.get('exercise', 'unknown')}</b><br/>"
-            f"Created: {report_data.get('created_at', '')} &nbsp;&nbsp; "
-            f"Report ID: {report_data.get('id', '')}"
-        ),
-        styles["muted"],
-    )
     story.append(Spacer(1, 8))
-    story.append(meta)
+    meta_table = Table(
+        [[
+            Paragraph(
+                (
+                    f"User: <b>{user.get('username', 'unknown')}</b> &nbsp;&nbsp; "
+                    f"Exercise: <b>{report_data.get('exercise', 'unknown')}</b><br/>"
+                    f"Created: {report_data.get('created_at', '')}"
+                ),
+                styles["body"],
+            ),
+            Paragraph(f"Report ID<br/><b>{report_data.get('id', '')}</b>", styles["metric_label"]),
+        ]],
+        colWidths=[390, 130],
+    )
+    meta_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), palette["panel_bg"]),
+        ("BOX", (0, 0), (-1, -1), 0.8, palette["panel_border"]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.append(meta_table)
     story.append(Spacer(1, 14))
 
     stats_cells = [
@@ -2503,12 +2587,12 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
             row = []
     stats_table = Table(stats_table_data, colWidths=[170, 170, 170])
     stats_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors_module.HexColor("#e2e8f0")),
-        ("TEXTCOLOR", (0, 0), (-1, -1), colors_module.HexColor("#0f172a")),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [palette["panel_bg"], palette["panel_bg_alt"]]),
+        ("TEXTCOLOR", (0, 0), (-1, -1), palette["text_main"]),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
+        ("BOX", (0, 0), (-1, -1), 0.8, palette["panel_border"]),
+        ("INNERGRID", (0, 0), (-1, -1), 0.6, palette["panel_border"]),
         ("TOPPADDING", (0, 0), (-1, -1), 10),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
@@ -2519,19 +2603,12 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     if rep_scores:
         rep_rows = [["Rep", "Accuracy"]] + [[f"Rep {idx}", f"{round(score, 1)}%"] for idx, score in enumerate(rep_scores, start=1)]
         rep_table = Table(rep_rows, colWidths=[110, 120])
-        rep_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
-            ("BACKGROUND", (0, 1), (-1, -1), colors_module.HexColor("#f8fafc")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#f8fafc"), colors_module.HexColor("#f1f5f9")]),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
-            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
+        rep_table.setStyle(_table_style_professional(
+            TableStyle=TableStyle,
+            palette=palette,
+            header_bg=palette["accent_teal"],
+            right_align_cols=[1],
+        ))
         story.append(rep_table)
     else:
         story.append(Paragraph("No per-rep scores recorded.", styles["muted"]))
@@ -2550,18 +2627,11 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
             ]
             issue_rows.append([f"Rep {idx}", ", ".join(parts)])
         issue_table = Table(issue_rows, colWidths=[80, 450])
-        issue_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
-            ("BACKGROUND", (0, 1), (-1, -1), colors_module.HexColor("#f8fafc")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#f8fafc"), colors_module.HexColor("#f1f5f9")]),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
+        issue_table.setStyle(_table_style_professional(
+            TableStyle=TableStyle,
+            palette=palette,
+            header_bg=palette["accent_teal"],
+        ))
         story.append(issue_table)
     else:
         story.append(Paragraph("No per-rep joint issues recorded.", styles["muted"]))
@@ -2574,19 +2644,11 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
             for joint, count in sorted(joint_issues.items(), key=lambda item: item[1], reverse=True)
         ]
         joint_table = Table(joint_rows, colWidths=[350, 80])
-        joint_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#334155")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
-            ("BACKGROUND", (0, 1), (-1, -1), colors_module.HexColor("#ffffff")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
-            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
+        joint_table.setStyle(_table_style_professional(
+            TableStyle=TableStyle,
+            palette=palette,
+            right_align_cols=[1],
+        ))
         story.append(joint_table)
     else:
         story.append(Paragraph("No global joint issues recorded.", styles["muted"]))
@@ -2605,19 +2667,17 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
         story.append(Paragraph("Linked Full Session", styles["section"]))
         if session_report:
             summary_table = Table([
+                ["Metric", "Value"],
                 ["Overall Accuracy", _format_percent_text(session_report.get("overall_accuracy", 0))],
                 ["Total Reps", str(int(session_report.get("total_reps") or 0))],
                 ["Session Grade", str(session_report.get("grade") or "N/A")],
             ], colWidths=[190, 160])
-            summary_table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors_module.HexColor("#ecfeff")),
-                ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#67e8f9")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#a5f3fc")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
+            summary_table.setStyle(_table_style_professional(
+                TableStyle=TableStyle,
+                palette=palette,
+                header_bg=palette["accent_info"],
+                right_align_cols=[1],
+            ))
             story.append(summary_table)
             story.append(Spacer(1, 8))
 
@@ -2644,17 +2704,12 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
                     ])
 
             set_table = Table(set_rows, colWidths=[80, 80, 110, 90])
-            set_table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
-                ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
+            set_table.setStyle(_table_style_professional(
+                TableStyle=TableStyle,
+                palette=palette,
+                header_bg=palette["accent_teal"],
+                right_align_cols=[2],
+            ))
             story.append(set_table)
 
     story.append(Spacer(1, 14))
@@ -2665,7 +2720,8 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     else:
         story.append(Paragraph("No feedback notes recorded.", styles["muted"]))
 
-    doc.build(story)
+    page_callback = _build_pdf_page_callback(colors_module, "Pose Matcher Exercise Report")
+    doc.build(story, onFirstPage=page_callback, onLaterPages=page_callback)
     return buffer.getvalue()
 
 
@@ -2676,6 +2732,7 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
     styles_module = modules["styles"]
     platypus = modules["platypus"]
     styles = _build_pdf_styles(styles_module, colors_module)
+    palette = _build_pdf_palette(colors_module)
 
     Paragraph = platypus.Paragraph
     Spacer = platypus.Spacer
@@ -2720,8 +2777,8 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
         colWidths=[390, 130],
     )
     header.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (1, 0), colors_module.HexColor("#0f172a")),
-        ("BOX", (0, 0), (-1, -1), 1, colors_module.HexColor("#0f172a")),
+        ("BACKGROUND", (0, 0), (1, 0), palette["header_bg"]),
+        ("BOX", (0, 0), (-1, -1), 1, palette["header_bg"]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (0, 0), 14),
         ("RIGHTPADDING", (1, 0), (1, 0), 12),
@@ -2731,32 +2788,45 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
     story.append(header)
     story.append(Spacer(1, 8))
 
-    story.append(Paragraph(
-        (
-            f"Exercise: <b>{session.get('exercise_name', 'unknown')}</b> &nbsp;&nbsp; "
-            f"Session ID: {session.get('id', '')}<br/>"
-            f"Started: {session.get('started_at', '')} &nbsp;&nbsp; "
-            f"Completed: {session.get('completed_at', '') or 'in progress'}"
-        ),
-        styles["muted"],
-    ))
+    meta_table = Table(
+        [[
+            Paragraph(
+                (
+                    f"Exercise: <b>{session.get('exercise_name', 'unknown')}</b><br/>"
+                    f"Started: {session.get('started_at', '')} &nbsp;&nbsp; "
+                    f"Completed: {session.get('completed_at', '') or 'in progress'}"
+                ),
+                styles["body"],
+            ),
+            Paragraph(f"Session ID<br/><b>{session.get('id', '')}</b>", styles["metric_label"]),
+        ]],
+        colWidths=[390, 130],
+    )
+    meta_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), palette["panel_bg"]),
+        ("BOX", (0, 0), (-1, -1), 0.8, palette["panel_border"]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.append(meta_table)
     story.append(Spacer(1, 14))
 
     summary_table = Table([
+        ["Metric", "Value"],
         ["Overall Accuracy", _format_percent_text(session_report.get("overall_accuracy", 0))],
         ["Total Reps", str(int(session_report.get("total_reps") or 0))],
         ["Sets", str(len(set_reports))],
         ["Completed", "Yes" if bool(session_report.get("completed", False)) else "No"],
     ], colWidths=[190, 150])
-    summary_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors_module.HexColor("#ecfeff")),
-        ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#67e8f9")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#a5f3fc")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
+    summary_table.setStyle(_table_style_professional(
+        TableStyle=TableStyle,
+        palette=palette,
+        header_bg=palette["accent_info"],
+        right_align_cols=[1],
+    ))
     story.append(summary_table)
     story.append(Spacer(1, 14))
 
@@ -2786,17 +2856,12 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
         set_rows.append(["-", "-", "-", "No sets recorded"])
 
     set_table = Table(set_rows, colWidths=[90, 90, 110, 110])
-    set_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#0f766e")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
-        ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
+    set_table.setStyle(_table_style_professional(
+        TableStyle=TableStyle,
+        palette=palette,
+        header_bg=palette["accent_teal"],
+        right_align_cols=[2],
+    ))
     story.append(set_table)
     story.append(Spacer(1, 14))
 
@@ -2812,17 +2877,11 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
                 f"{round(float(item.get('error_pct', 0.0)), 1)}%" if isinstance(item.get("error_pct"), (int, float)) else "0.0%",
             ])
         problem_table = Table(problem_rows, colWidths=[230, 120, 90])
-        problem_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors_module.HexColor("#334155")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors_module.white),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors_module.HexColor("#ffffff"), colors_module.HexColor("#f8fafc")]),
-            ("BOX", (0, 0), (-1, -1), 0.8, colors_module.HexColor("#cbd5e1")),
-            ("INNERGRID", (0, 0), (-1, -1), 0.6, colors_module.HexColor("#cbd5e1")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
+        problem_table.setStyle(_table_style_professional(
+            TableStyle=TableStyle,
+            palette=palette,
+            right_align_cols=[2],
+        ))
         story.append(problem_table)
     else:
         story.append(Paragraph("No notable joint issues detected.", styles["muted"]))
@@ -2836,7 +2895,8 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
         problem_joints=problem_joints,
     )
 
-    doc.build(story)
+    page_callback = _build_pdf_page_callback(colors_module, "Pose Matcher Session Report")
+    doc.build(story, onFirstPage=page_callback, onLaterPages=page_callback)
     return buffer.getvalue()
 
 
