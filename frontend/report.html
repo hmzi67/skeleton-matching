@@ -224,13 +224,20 @@
     const completed    = sessionReport ? sessionReport.completed : !!session.completed;
 
     const dateStr = session.started_at ? new Date(session.started_at).toLocaleString() : '';
+    const reportOwner = session.username || 'unknown';
+    const reportEmail = session.email || '';
+    const headerMeta = [
+      dateStr,
+      `User: ${reportOwner}`,
+      reportEmail ? `Email: ${reportEmail}` : null,
+    ].filter(Boolean).join(' · ');
 
     let html = '';
     html += `
       <div class="report-header">
         <div>
           <h1>${humanExercise(session.exercise_name)} ${completed ? '' : '<span class="partial-pill">Partial session</span>'}</h1>
-          <div class="meta">${dateStr}</div>
+          <div class="meta">${headerMeta}</div>
         </div>
         <div class="header-actions">
           <button class="download-btn" onclick="downloadSessionReportPdf()">

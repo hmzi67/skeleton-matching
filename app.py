@@ -2455,14 +2455,20 @@ def _append_pdf_skeleton_section(
     *,
     Paragraph,
     Spacer,
+    Table,
+    TableStyle,
     Image,
+    PageBreak,
     styles: dict,
     problem_joints: list[dict],
-    image_width: int = 240,
-    image_height: int = 320,
+    image_width: int = 515,
+    image_height: int = 665,
 ) -> None:
     """Append skeleton visualization block into a ReportLab story."""
+    # Reserve a clean page for the skeleton so it appears centered and prominent.
+    story.append(PageBreak())
     story.append(Paragraph("Joint Skeleton Visualization", styles["section"]))
+    story.append(Spacer(1, 8))
 
     if not problem_joints:
         story.append(Paragraph("No notable joint issues detected.", styles["muted"]))
@@ -2477,10 +2483,34 @@ def _append_pdf_skeleton_section(
             dark_mode=True,
         )
         image_flowable = Image(io.BytesIO(skeleton_png), width=image_width, height=image_height)
-        image_flowable.hAlign = "LEFT"
-        story.append(image_flowable)
+        image_flowable.hAlign = "CENTER"
+        image_frame = Table(
+            [[image_flowable]],
+            colWidths=[520],
+            rowHeights=[670],
+        )
+        image_frame.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(image_frame)
         story.append(Spacer(1, 6))
-        story.append(Paragraph("Defect points are circled and numbered to match the problem-joint ranking.", styles["muted"]))
+        caption = Table(
+            [[Paragraph("Defect points are circled and numbered to match the problem-joint ranking.", styles["muted"])]],
+            colWidths=[520],
+        )
+        caption.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(caption)
     except Exception:
         story.append(Paragraph("Skeleton visualization unavailable for this report.", styles["muted"]))
 
@@ -2511,6 +2541,7 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     TableStyle = platypus.TableStyle
     SimpleDocTemplate = platypus.SimpleDocTemplate
     Image = platypus.Image
+    PageBreak = platypus.PageBreak
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -2524,6 +2555,8 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
     )
 
     user = report_data.get("user") or {}
+    user_name = user.get("username") or "unknown"
+    user_email = user.get("email") or "unknown"
     story = []
 
     header = Table(
@@ -2548,7 +2581,8 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
         [[
             Paragraph(
                 (
-                    f"User: <b>{user.get('username', 'unknown')}</b> &nbsp;&nbsp; "
+                    f"User: <b>{user_name}</b> &nbsp;&nbsp; "
+                    f"Email: <b>{user_email}</b><br/>"
                     f"Exercise: <b>{report_data.get('exercise', 'unknown')}</b><br/>"
                     f"Created: {report_data.get('created_at', '')}"
                 ),
@@ -2657,7 +2691,10 @@ def _build_exercise_report_pdf(report_data: dict) -> bytes:
         story,
         Paragraph=Paragraph,
         Spacer=Spacer,
+        Table=Table,
+        TableStyle=TableStyle,
         Image=Image,
+        PageBreak=PageBreak,
         styles=styles,
         problem_joints=problem_joints,
     )
@@ -2740,8 +2777,11 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
     TableStyle = platypus.TableStyle
     SimpleDocTemplate = platypus.SimpleDocTemplate
     Image = platypus.Image
+    PageBreak = platypus.PageBreak
 
     session = report_data.get("session") or {}
+    session_username = session.get("username") or "unknown"
+    session_email = session.get("email") or "unknown"
     set_reports = report_data.get("set_reports") if isinstance(report_data.get("set_reports"), list) else []
     session_report = report_data.get("session_report") if isinstance(report_data.get("session_report"), dict) else {}
     problem_joints = session_report.get("problem_joints") if isinstance(session_report.get("problem_joints"), list) else []
@@ -2793,6 +2833,8 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
             Paragraph(
                 (
                     f"Exercise: <b>{session.get('exercise_name', 'unknown')}</b><br/>"
+                    f"User: <b>{session_username}</b> &nbsp;&nbsp; "
+                    f"Email: <b>{session_email}</b><br/>"
                     f"Started: {session.get('started_at', '')} &nbsp;&nbsp; "
                     f"Completed: {session.get('completed_at', '') or 'in progress'}"
                 ),
@@ -2890,7 +2932,10 @@ def _build_session_report_pdf(report_data: dict) -> bytes:
         story,
         Paragraph=Paragraph,
         Spacer=Spacer,
+        Table=Table,
+        TableStyle=TableStyle,
         Image=Image,
+        PageBreak=PageBreak,
         styles=styles,
         problem_joints=problem_joints,
     )
@@ -2936,6 +2981,7 @@ def _serialize_exercise_report(report) -> dict:
         "user": {
             "id": report.user.id,
             "username": report.user.username,
+            "email": report.user.email,
         } if hasattr(report, "user") and report.user else None,
     }
 
@@ -2968,6 +3014,7 @@ def _fetch_session_bundle(session_id: str, *, requester_user_id: str, is_admin: 
             "completed_at": sess.completedAt.isoformat() if sess.completedAt else None,
             "completed": sess.completed,
             "username": sess.user.username if hasattr(sess, "user") and sess.user else None,
+            "email": sess.user.email if hasattr(sess, "user") and sess.user else None,
         },
         "set_reports": [_safe_json(row.reportJson, {}) for row in set_rows],
         "session_report": _safe_json(sess_row.reportJson, {}) if sess_row else None,
