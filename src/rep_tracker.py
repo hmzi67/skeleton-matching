@@ -26,6 +26,19 @@ from src.exercise_weights import (
 
 
 # ---------------------------------------------------------------------------
+# Phase weighting — HOLD frames matter most; READY frames count least.
+# ---------------------------------------------------------------------------
+
+PHASE_WEIGHTS: dict[str, float] = {
+    "READY":   0.5,
+    "DOWN":    0.9,
+    "HOLD":    1.5,
+    "UP":      0.9,
+    "UNKNOWN": 0.7,
+}
+
+
+# ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
 
@@ -37,6 +50,7 @@ class FrameScore:
     joint_scores: dict[str, float]   # joint_name -> 0.0–1.0
     overall_score: float             # 0.0–1.0 (or 0–100 — RepTracker normalises)
     timestamp_ms: float = field(default_factory=lambda: time.time() * 1000.0)
+    phase: str = "UNKNOWN"           # exercise phase for weighted aggregation
 
 
 @dataclass
@@ -204,7 +218,16 @@ class RepTracker:
                 duration_ms=0.0,
             )
         else:
-            mean_overall = sum(_normalise_overall(f.overall_score) for f in frames) / n
+            # Phase-weighted mean: HOLD frames matter more than READY frames.
+            phase_w = [PHASE_WEIGHTS.get(f.phase, 0.7) for f in frames]
+            weight_total = sum(phase_w)
+            if weight_total > 0:
+                mean_overall = (
+                    sum(_normalise_overall(f.overall_score) * w for f, w in zip(frames, phase_w))
+                    / weight_total
+                )
+            else:
+                mean_overall = sum(_normalise_overall(f.overall_score) for f in frames) / n
 
             joint_err_sum: dict[str, float] = {}
             joint_err_count: dict[str, int] = {}

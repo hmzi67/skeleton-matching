@@ -432,6 +432,67 @@ _HAND_VELOCITY_JOINTS = [
 # ---------------------------------------------------------------------------
 
 
+def normalize_pose_landmarks_frame(landmarks: list[dict]) -> list[dict] | None:
+    """Normalize one pose-landmark frame with the same pipeline as sequences.
+
+    Steps:
+    1. Translate to hip center
+    2. Scale by torso length
+    3. Rotate shoulders to align with the X-axis
+
+    Returns
+    -------
+    list[dict] | None
+        Normalized landmark list, or ``None`` when the frame is unreliable
+        (e.g. missing key landmarks or near-zero torso length).
+    """
+    if not landmarks or len(landmarks) <= 24:
+        return None
+
+    # --- 1. TRANSLATE --------------------------------------------------
+    hip_center_x = (landmarks[23]["x"] + landmarks[24]["x"]) / 2.0
+    hip_center_y = (landmarks[23]["y"] + landmarks[24]["y"]) / 2.0
+    hip_center_z = (landmarks[23]["z"] + landmarks[24]["z"]) / 2.0
+
+    translated: list[dict] = []
+    for lm in landmarks:
+        translated.append(
+            {
+                "x": lm["x"] - hip_center_x,
+                "y": lm["y"] - hip_center_y,
+                "z": lm["z"] - hip_center_z,
+                "visibility": lm.get("visibility", 1.0),
+            }
+        )
+
+    # --- 2. SCALE ------------------------------------------------------
+    shoulder_center_x = (translated[11]["x"] + translated[12]["x"]) / 2.0
+    shoulder_center_y = (translated[11]["y"] + translated[12]["y"]) / 2.0
+    shoulder_center_z = (translated[11]["z"] + translated[12]["z"]) / 2.0
+
+    torso_length = math.sqrt(
+        shoulder_center_x ** 2
+        + shoulder_center_y ** 2
+        + shoulder_center_z ** 2
+    )
+    if torso_length < 0.01:
+        return None
+
+    scaled: list[dict] = []
+    for lm in translated:
+        scaled.append(
+            {
+                "x": lm["x"] / torso_length,
+                "y": lm["y"] / torso_length,
+                "z": lm["z"] / torso_length,
+                "visibility": lm["visibility"],
+            }
+        )
+
+    # --- 3. ROTATE -----------------------------------------------------
+    return _align_to_x_axis(scaled)
+
+
 def normalize_skeleton(skeleton_data: list[dict]) -> list[dict]:
     """Normalize a skeleton sequence for body-size / position independence.
 
@@ -469,50 +530,9 @@ def normalize_skeleton(skeleton_data: list[dict]) -> list[dict]:
 
     for frame in skeleton_data:
         lms = frame["landmarks"]
-
-        # --- 1. TRANSLATE --------------------------------------------------
-        hip_center_x = (lms[23]["x"] + lms[24]["x"]) / 2.0
-        hip_center_y = (lms[23]["y"] + lms[24]["y"]) / 2.0
-        hip_center_z = (lms[23]["z"] + lms[24]["z"]) / 2.0
-
-        translated: list[dict] = []
-        for lm in lms:
-            translated.append(
-                {
-                    "x": lm["x"] - hip_center_x,
-                    "y": lm["y"] - hip_center_y,
-                    "z": lm["z"] - hip_center_z,
-                    "visibility": lm["visibility"],
-                }
-            )
-
-        # --- 2. SCALE ------------------------------------------------------
-        shoulder_center_x = (translated[11]["x"] + translated[12]["x"]) / 2.0
-        shoulder_center_y = (translated[11]["y"] + translated[12]["y"]) / 2.0
-        shoulder_center_z = (translated[11]["z"] + translated[12]["z"]) / 2.0
-
-        torso_length = math.sqrt(
-            shoulder_center_x ** 2
-            + shoulder_center_y ** 2
-            + shoulder_center_z ** 2
-        )
-
-        if torso_length < 0.01:
+        rotated = normalize_pose_landmarks_frame(lms)
+        if rotated is None:
             continue  # unreliable frame
-
-        scaled: list[dict] = []
-        for lm in translated:
-            scaled.append(
-                {
-                    "x": lm["x"] / torso_length,
-                    "y": lm["y"] / torso_length,
-                    "z": lm["z"] / torso_length,
-                    "visibility": lm["visibility"],
-                }
-            )
-
-        # --- 3. ROTATE (align shoulder to X-axis) --------------------------
-        rotated = _align_to_x_axis(scaled)
 
         # --- 4. POSE JOINT ANGLES + 5. SYMMETRY RATIOS --------------------
         angles = _compute_frame_angles(rotated)

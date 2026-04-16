@@ -57,6 +57,15 @@ ALL_JOINT_NAMES: list[str] = _JOINT_NAMES + _HAND_JOINT_NAMES
 FEEDBACK_WEIGHT_THRESHOLD = 0.05
 _MIN_WEIGHT = 0.01
 
+# compute_auto_weights(): joints whose relative weight is below this fraction
+# of the maximum weight are zeroed out.  Prevents low-ROM body joints from
+# contributing free "good" points on close-up hand exercises.
+MIN_WEIGHT_RATIO: float = 0.15
+
+# Public set of hand joint names used by detect_dominant_modality() and tests.
+# Mirrors _HAND_JOINT_NAMES but as an O(1)-lookup frozenset.
+HAND_JOINT_NAMES: frozenset[str] = frozenset(_HAND_JOINT_NAMES)
+
 
 # ---------------------------------------------------------------------------
 # Weight registry
@@ -149,53 +158,54 @@ EXERCISE_WEIGHTS: dict[str, dict[str, float]] = {
     },
 
     # --- Wrist / forearm dominant ---
+    # Elbows anchor the forearm — keep them at a meaningful weight.
+    # All other pose joints are irrelevant and set to 0.0.
     "wrist_curl": {
-        "left_elbow":             0.06,
-        "right_elbow":            0.06,
-        "left_shoulder":          0.04,
-        "right_shoulder":         0.04,
-        "torso_lean":             0.0,
-        "left_hip":               0.0,
-        "right_hip":              0.0,
-        "left_knee":              0.0,
-        "right_knee":             0.0,
+        "left_elbow":              0.4,
+        "right_elbow":             0.4,
+        "left_shoulder":           0.0,
+        "right_shoulder":          0.0,
+        "torso_lean":              0.0,
+        "left_hip":                0.0,
+        "right_hip":               0.0,
+        "left_knee":               0.0,
+        "right_knee":              0.0,
         # hand joints dominate
-        "left_hand_thumb_curl":   0.05,
-        "left_hand_index_curl":   0.08,
-        "left_hand_middle_curl":  0.08,
-        "left_hand_ring_curl":    0.06,
-        "left_hand_pinky_curl":   0.06,
-        "right_hand_thumb_curl":  0.05,
-        "right_hand_index_curl":  0.08,
-        "right_hand_middle_curl": 0.08,
-        "right_hand_ring_curl":   0.06,
-        "right_hand_pinky_curl":  0.06,
+        "left_hand_thumb_curl":    0.6,
+        "left_hand_index_curl":    0.6,
+        "left_hand_middle_curl":   0.6,
+        "left_hand_ring_curl":     0.6,
+        "left_hand_pinky_curl":    0.6,
+        "right_hand_thumb_curl":   0.6,
+        "right_hand_index_curl":   0.6,
+        "right_hand_middle_curl":  0.6,
+        "right_hand_ring_curl":    0.6,
+        "right_hand_pinky_curl":   0.6,
     },
 
     # --- Hand / finger dominant (rehabilitation, music, typing) ---
-    # Body joints are irrelevant — set to 0.0 so they are excluded from
-    # both scoring and feedback entirely.
+    # ALL pose joints are 0.0 — body position is irrelevant for this exercise.
     "finger_exercise": {
-        "left_elbow":             0.03,
-        "right_elbow":            0.03,
-        "left_shoulder":          0.02,
-        "right_shoulder":         0.02,
-        "torso_lean":             0.0,
-        "left_hip":               0.0,
-        "right_hip":              0.0,
-        "left_knee":              0.0,
-        "right_knee":             0.0,
-        # fingers are primary
-        "left_hand_thumb_curl":   0.08,
-        "left_hand_index_curl":   0.09,
-        "left_hand_middle_curl":  0.09,
-        "left_hand_ring_curl":    0.09,
-        "left_hand_pinky_curl":   0.08,
-        "right_hand_thumb_curl":  0.08,
-        "right_hand_index_curl":  0.09,
-        "right_hand_middle_curl": 0.09,
-        "right_hand_ring_curl":   0.09,
-        "right_hand_pinky_curl":  0.08,
+        "left_elbow":              0.0,
+        "right_elbow":             0.0,
+        "left_shoulder":           0.0,
+        "right_shoulder":          0.0,
+        "torso_lean":              0.0,
+        "left_hip":                0.0,
+        "right_hip":               0.0,
+        "left_knee":               0.0,
+        "right_knee":              0.0,
+        # all 10 fingers are primary
+        "left_hand_thumb_curl":    0.8,
+        "left_hand_index_curl":    1.0,
+        "left_hand_middle_curl":   1.0,
+        "left_hand_ring_curl":     1.0,
+        "left_hand_pinky_curl":    1.0,
+        "right_hand_thumb_curl":   0.8,
+        "right_hand_index_curl":   1.0,
+        "right_hand_middle_curl":  1.0,
+        "right_hand_ring_curl":    1.0,
+        "right_hand_pinky_curl":   1.0,
     },
 
     # --- Shoulder rotation / overhead work (no meaningful hand involvement) ---
@@ -426,6 +436,23 @@ def compute_auto_weights(
         if wsum > 0:
             weights = {j: w / wsum for j, w in weights.items()}
 
+    # ------------------------------------------------------------------
+    # Secondary pruning: zero out any joint whose weight is less than
+    # MIN_WEIGHT_RATIO × max_weight.  This removes low-ROM body joints
+    # (e.g. slightly drifting hips on a hand exercise) that survived the
+    # ROM-cutoff step but would otherwise add "free" good points.
+    # ------------------------------------------------------------------
+    max_w = max(weights.values(), default=0.0)
+    if max_w > 0:
+        weights = {
+            j: (w if w / max_w >= MIN_WEIGHT_RATIO else 0.0)
+            for j, w in weights.items()
+        }
+    # Re-normalise after zeroing.
+    wsum2 = sum(weights.values())
+    if wsum2 > 1e-9:
+        weights = {j: w / wsum2 for j, w in weights.items()}
+
     # Re-pick primary joint from filtered ranges so it can never be a
     # joint we just suppressed.
     non_zero = {j: r for j, r in ranges.items() if r > 0}
@@ -434,9 +461,52 @@ def compute_auto_weights(
     else:
         primary_joint = max(ranges, key=lambda k: ranges[k]) if ranges else ""  # type: ignore[arg-type]
 
+    # ------------------------------------------------------------------
+    # Modality detection: if hand joints dominate, zero out remaining pose
+    # joints; if pose joints dominate, zero out hand joints.  This stops
+    # incidental body movement in a hand exercise (or vice-versa) from
+    # diluting the score.
+    # ------------------------------------------------------------------
+    modality = detect_dominant_modality(weights)
+    if modality == "hand":
+        weights = {j: (w if j in HAND_JOINT_NAMES else 0.0) for j, w in weights.items()}
+    elif modality == "pose":
+        weights = {j: (w if j not in HAND_JOINT_NAMES else 0.0) for j, w in weights.items()}
+    # Re-normalise after modality zeroing (no-op when modality == "mixed").
+    wsum3 = sum(weights.values())
+    if wsum3 > 1e-9:
+        weights = {j: w / wsum3 for j, w in weights.items()}
+
     return {
         "weights": weights,
         "primary_joint": primary_joint,
         "primary_min": rom_min[primary_joint],
         "primary_max": rom_max[primary_joint],
     }
+
+
+def detect_dominant_modality(weights: dict[str, float]) -> str:
+    """Return whether ``weights`` is hand-dominant, pose-dominant, or mixed.
+
+    Parameters
+    ----------
+    weights : dict[str, float]
+        Normalised (or un-normalised) joint weight dict.
+
+    Returns
+    -------
+    str
+        ``"hand"`` if hand joints account for ≥ 65% of total weight,
+        ``"pose"`` if pose joints account for ≥ 65% of total weight,
+        ``"mixed"`` otherwise.
+    """
+    total = sum(weights.values())
+    if total == 0:
+        return "mixed"
+    hand_share = sum(w for j, w in weights.items() if j in HAND_JOINT_NAMES) / total
+    pose_share = 1.0 - hand_share
+    if hand_share >= 0.65:
+        return "hand"
+    if pose_share >= 0.65:
+        return "pose"
+    return "mixed"

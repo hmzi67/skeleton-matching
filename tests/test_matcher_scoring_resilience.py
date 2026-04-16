@@ -4,6 +4,21 @@ from src.exercise_weights import get_weights
 from src.matcher import match_single_frame
 
 
+def _normalized_landmarks_with_joint_offset(joint_idx: int, offset_x: float) -> list[dict]:
+    """Create a minimal normalized-landmark list with one displaced joint."""
+    points = [
+        {"x": 0.0, "y": 0.0, "z": 0.0, "visibility": 1.0}
+        for _ in range(33)
+    ]
+    points[joint_idx] = {
+        "x": offset_x,
+        "y": 0.0,
+        "z": 0.0,
+        "visibility": 1.0,
+    }
+    return points
+
+
 class MatcherScoringResilienceTests(unittest.TestCase):
     def test_pose_deadzone_allows_small_style_variation(self) -> None:
         gt = {"angles": {"left_elbow": 90.0}}
@@ -60,9 +75,29 @@ class MatcherScoringResilienceTests(unittest.TestCase):
             exercise_weights=weights,
         )
 
-        # Should still be reduced for low coverage, but not collapse to ~30.
-        self.assertGreaterEqual(result["overall_score"], 55.0)
-        self.assertLessEqual(result["overall_score"], 65.0)
+        # finger_exercise now sets ALL pose joints to weight 0.0.
+        # When only body joints are visible (hand landmarks dropped), no scored
+        # joint is active → max_angle_penalty == 0 → overall_score == 0.0.
+        # This is correct: we cannot evaluate hand form without hand data.
+        self.assertEqual(result["overall_score"], 0.0)
+
+    def test_pose_position_mismatch_penalized_even_if_angle_matches(self) -> None:
+        gt = {
+            "angles": {"left_elbow": 90.0},
+            "normalized_landmarks": _normalized_landmarks_with_joint_offset(13, 0.0),
+        }
+        user = {
+            "angles": {"left_elbow": 90.0},
+            "normalized_landmarks": _normalized_landmarks_with_joint_offset(13, 0.35),
+        }
+        result = match_single_frame(
+            gt,
+            user,
+            exercise_weights={"left_elbow": 1.0},
+        )
+
+        self.assertIn("spatial_diff", result["left_elbow"])
+        self.assertLess(result["overall_score"], 95.0)
 
 
 if __name__ == "__main__":

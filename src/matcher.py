@@ -19,6 +19,8 @@ Provides:
 
 from __future__ import annotations
 
+from math import exp
+
 import numpy as np
 from dtaidistance import dtw_ndim
 
@@ -35,13 +37,36 @@ _WARNING_THRESHOLD = 25  # degrees — within this → "warning"; beyond → "ba
 # Maximum angle penalty per joint (caps contribution so score ∈ [0, 100]).
 _MAX_PENALTY_PER_JOINT = 45.0
 
-# Small natural style differences should not tank score.
-_POSE_ANGLE_TOLERANCE_DEG = 5.0
-_HAND_ANGLE_TOLERANCE_DEG = 8.0
+# Per-joint tolerance overrides (degrees). Joints not listed here fall back to
+# POSE_ANGLE_TOLERANCE or HAND_ANGLE_TOLERANCE depending on their category.
+JOINT_TOLERANCES: dict[str, float] = {
+    "left_knee":      4,   "right_knee":      4,
+    "left_hip":       7,   "right_hip":       7,
+    "left_shoulder":  10,  "right_shoulder":  10,
+    "left_elbow":     6,   "right_elbow":     6,
+    "left_ankle":     4,   "right_ankle":     4,
+}
+POSE_ANGLE_TOLERANCE: float = 5    # fallback for unlisted pose joints
+HAND_ANGLE_TOLERANCE: float = 8    # fallback for all hand joints
 
-# Missing-joint penalty should be gentle unless coverage is extremely low.
-_COVERAGE_NO_PENALTY = 0.70
-_COVERAGE_SOFT_FLOOR = 0.50
+# Pose-joint landmark indices (MediaPipe Pose 33 landmarks).
+_POSE_JOINT_LANDMARK_IDX: dict[str, int] = {
+    "left_elbow": 13,
+    "right_elbow": 14,
+    "left_knee": 25,
+    "right_knee": 26,
+    "left_hip": 23,
+    "right_hip": 24,
+    "left_shoulder": 11,
+    "right_shoulder": 12,
+}
+
+# Spatial-consistency tuning for pose joints.
+# Distances are computed in the normalized landmark XY plane, where the body
+# is translated to hip-center, scaled by torso length, and shoulder-aligned.
+_SPATIAL_DISTANCE_AT_MAX_PENALTY = 0.45
+_POSE_SPATIAL_BLEND_MIN = 0.15
+_POSE_SPATIAL_BLEND_MAX = 0.55
 
 # ---------------------------------------------------------------------------
 # Velocity thresholds (informational only — NOT included in score)
@@ -64,26 +89,125 @@ _SYMMETRY_PAIRS = [
 
 _SYMMETRY_THRESHOLD = 0.85  # ratio below this flags asymmetry
 
+# Primary-joint floor: if any joint with exercise_weight >= 0.5 (pre-norm)
+# scores below PRIMARY_JOINT_SCORE_FLOOR (0–100), the overall score is capped
+# at OVERALL_SCORE_CAP_WHEN_PRIMARY_FAILS.  Applied before coverage_factor so
+# a poor primary joint cannot be rescued by high-scoring secondaries.
+PRIMARY_JOINT_SCORE_FLOOR: int = 40
+OVERALL_SCORE_CAP_WHEN_PRIMARY_FAILS: int = 70
+
+
+def soft_cap(error: float, cap: float = 45.0) -> float:
+    """Soft ceiling that asymptotically approaches `cap` without a hard cutoff.
+
+    Unlike ``min(error, cap)``, this preserves ordering between extreme errors:
+    a 60° error still scores worse than a 50° error.  At small values the
+    function is approximately linear; it saturates gradually near `cap`.
+
+    Formula: cap * (1 - exp(-error / cap))
+    """
+    if error <= 0.0:
+        return 0.0
+    return cap * (1.0 - exp(-error / cap))
+
+
+def piecewise_penalty(raw: float) -> float:
+    """Superlinear penalty curve applied after clamping raw error to [0, 45].
+
+    Mild zone   (raw <= 15): gentle linear slope — natural style variation.
+    Moderate    (raw <= 30): steeper — notable form deviation.
+    Critical    (raw >  30): steep — unsafe / significantly incorrect.
+    The maximum output (raw=45) is ≈ 55.5; callers re-clamp or soft-cap.
+    """
+    if raw <= 15.0:
+        return raw * 0.5
+    elif raw <= 30.0:
+        return 7.5 + (raw - 15.0) * 1.2
+    else:
+        return 25.5 + (raw - 30.0) * 2.0
+
 
 def _angle_tolerance_for_joint(joint: str) -> float:
-    """Return scoring dead-zone (degrees) for a joint."""
-    if joint in _HAND_JOINT_NAMES:
-        return _HAND_ANGLE_TOLERANCE_DEG
-    return _POSE_ANGLE_TOLERANCE_DEG
+    """Return scoring dead-zone (degrees) for a joint.
 
-
-def _soft_coverage_factor(coverage: float) -> float:
-    """Map coverage [0,1] to a soft score multiplier.
-
-    Coverage >= _COVERAGE_NO_PENALTY receives no penalty.
-    Below that, scale down gradually with a floor to avoid collapsing scores
-    for otherwise-correct form when some joints are intermittently unavailable.
+    First consults JOINT_TOLERANCES for a per-joint override, then falls back
+    to HAND_ANGLE_TOLERANCE for hand joints and POSE_ANGLE_TOLERANCE for all
+    other pose joints.
     """
-    c = max(0.0, min(1.0, coverage))
-    if c >= _COVERAGE_NO_PENALTY:
+    if joint in JOINT_TOLERANCES:
+        return float(JOINT_TOLERANCES[joint])
+    if joint in _HAND_JOINT_NAMES:
+        return float(HAND_ANGLE_TOLERANCE)
+    return float(POSE_ANGLE_TOLERANCE)
+
+
+def coverage_factor(coverage_ratio: float) -> float:
+    """Map joint-coverage [0, 1] to a smooth score multiplier.
+
+    Three-segment piecewise function:
+      - >= 0.85  → 1.0          (full score, minor occlusion forgiven)
+      - >= 0.50  → 0.7 – 1.0   (linear ramp through mid-range)
+      - <  0.50  → 0.0 – 0.7   (aggressive penalty for low coverage)
+    At coverage = 0.0 the multiplier is exactly 0.0; at 0.50 it is 0.70;
+    at 0.85 it reaches 1.0 and stays there.
+    """
+    if coverage_ratio >= 0.85:
         return 1.0
-    ratio = c / _COVERAGE_NO_PENALTY if _COVERAGE_NO_PENALTY > 1e-9 else 1.0
-    return _COVERAGE_SOFT_FLOOR + (1.0 - _COVERAGE_SOFT_FLOOR) * ratio
+    elif coverage_ratio >= 0.50:
+        return 0.7 + 0.3 * ((coverage_ratio - 0.50) / 0.35)
+    else:
+        return 0.7 * (coverage_ratio / 0.50)
+
+
+def _valid_normalized_landmark(
+    lms: list[dict] | None,
+    idx: int,
+) -> dict | None:
+    """Return one normalized landmark dict when coordinates are available."""
+    if not lms or idx < 0 or idx >= len(lms):
+        return None
+    point = lms[idx]
+    if not isinstance(point, dict):
+        return None
+    if "x" not in point or "y" not in point:
+        return None
+    return point
+
+
+def _pose_joint_spatial_diff_xy(
+    joint: str,
+    gt_lms: list[dict] | None,
+    user_lms: list[dict] | None,
+) -> float | None:
+    """Return XY distance between GT and user normalized pose joint points."""
+    idx = _POSE_JOINT_LANDMARK_IDX.get(joint)
+    if idx is None:
+        return None
+    gt_point = _valid_normalized_landmark(gt_lms, idx)
+    user_point = _valid_normalized_landmark(user_lms, idx)
+    if gt_point is None or user_point is None:
+        return None
+    return float(np.hypot(user_point["x"] - gt_point["x"], user_point["y"] - gt_point["y"]))
+
+
+def _spatial_error_to_penalty(spatial_diff_xy: float) -> float:
+    """Map normalized XY landmark distance to the same penalty scale as angles."""
+    if spatial_diff_xy <= 0.0:
+        return 0.0
+    ratio = min(1.0, spatial_diff_xy / _SPATIAL_DISTANCE_AT_MAX_PENALTY)
+    raw = ratio * _MAX_PENALTY_PER_JOINT
+    return soft_cap(piecewise_penalty(raw))
+
+
+def _blend_pose_joint_penalty(
+    angle_penalty: float,
+    spatial_penalty: float,
+    spatial_diff_xy: float,
+) -> float:
+    """Blend angle and spatial penalties with severity-adaptive weighting."""
+    ratio = min(1.0, max(0.0, spatial_diff_xy / _SPATIAL_DISTANCE_AT_MAX_PENALTY))
+    blend = _POSE_SPATIAL_BLEND_MIN + (_POSE_SPATIAL_BLEND_MAX - _POSE_SPATIAL_BLEND_MIN) * ratio
+    return (1.0 - blend) * angle_penalty + blend * spatial_penalty
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +257,8 @@ def match_single_frame(
     user_angles = user_frame.get("angles", {})
     gt_velocities = gt_frame.get("velocities", {})
     user_velocities = user_frame.get("velocities", {})
+    gt_normalized_lms = gt_frame.get("normalized_landmarks")
+    user_normalized_lms = user_frame.get("normalized_landmarks")
     has_velocity = bool(gt_velocities and user_velocities)
 
     # ------------------------------------------------------------------
@@ -235,16 +361,38 @@ def match_single_frame(
 
         # Per-joint normalised score (0.0–1.0) and raw error for reporting.
         # A small dead-zone keeps natural movement style differences from
-        # being over-penalized.
+        # being over-penalized.  The piecewise curve amplifies larger errors
+        # more aggressively while staying gentle in the mild zone.
         effective_abs_diff = max(0.0, abs_diff - _angle_tolerance_for_joint(joint))
-        capped = min(effective_abs_diff, _MAX_PENALTY_PER_JOINT)
-        joint_scores[joint] = round(1.0 - (capped / _MAX_PENALTY_PER_JOINT), 4)
+        raw = min(effective_abs_diff, _MAX_PENALTY_PER_JOINT)
+        angle_penalty = soft_cap(piecewise_penalty(raw))
+
+        # Generic spatial consistency for pose joints (if normalized
+        # landmarks are available in both frames). This catches cases where
+        # a joint angle is close but the joint position is clearly off.
+        spatial_diff = _pose_joint_spatial_diff_xy(
+            joint,
+            gt_normalized_lms,
+            user_normalized_lms,
+        )
+        joint_penalty = angle_penalty
+        if spatial_diff is not None:
+            spatial_penalty = _spatial_error_to_penalty(spatial_diff)
+            joint_penalty = _blend_pose_joint_penalty(
+                angle_penalty,
+                spatial_penalty,
+                spatial_diff,
+            )
+
+        joint_scores[joint] = round(1.0 - (joint_penalty / _MAX_PENALTY_PER_JOINT), 4)
         joint_errors[joint] = round(abs_diff, 2)
+        if spatial_diff is not None:
+            result[joint]["spatial_diff"] = round(spatial_diff, 4)
 
         # Accumulate score penalty only for scored (weight > 0) joints.
         weight = joint_weights.get(joint, 0.0)
         if weight > 0:
-            penalty = capped * weight
+            penalty = joint_penalty * weight
             total_weighted_penalty += penalty
             total_weight += weight
 
@@ -273,7 +421,22 @@ def match_single_frame(
             pose_observed = len([j for j in active_joints if j in _JOINT_NAMES])
             coverage = pose_observed / len(_JOINT_NAMES) if _JOINT_NAMES else 1.0
 
-        raw_score *= _soft_coverage_factor(coverage)
+        # Primary-joint floor: cap raw_score if any high-weight joint fails badly.
+        # We use the caller-supplied (pre-normalisation) exercise_weights so
+        # joints that each hold ~0.6 raw weight are all treated as "primary"
+        # even though their normalised share is only ~0.33 after dividing by 3.
+        if exercise_weights is not None:
+            primary_scores = [
+                joint_scores[jn] * 100
+                for jn in joint_scores
+                if exercise_weights.get(jn, 0.0) >= 0.5
+            ]
+            if primary_scores:
+                worst_primary = min(primary_scores)
+                if worst_primary < PRIMARY_JOINT_SCORE_FLOOR:
+                    raw_score = min(raw_score, float(OVERALL_SCORE_CAP_WHEN_PRIMARY_FAILS))
+
+        raw_score *= coverage_factor(coverage)
 
         overall_score = raw_score
     else:

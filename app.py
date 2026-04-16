@@ -43,7 +43,12 @@ from src.extractor import extract_skeleton_from_video, load_skeleton
 from src.feedback import generate_feedback
 from src.filters import LandmarkSmoother, HandLandmarkSmoother
 from src.matcher import match_single_frame
-from src.normalizer import normalize_skeleton, compute_hand_angles, reconcile_hand_sides
+from src.normalizer import (
+    normalize_skeleton,
+    normalize_pose_landmarks_frame,
+    compute_hand_angles,
+    reconcile_hand_sides,
+)
 from src.stability import (
     AngleSmoother,
     FeedbackStabilizer,
@@ -150,6 +155,16 @@ LIVE_MATCH_DEBUG_TIMINGS = os.environ.get("LIVE_MATCH_DEBUG_TIMINGS", "0").strip
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+def adaptive_ema(prev: float, current: float, threshold: float = 10.0) -> float:
+    """EMA with a higher alpha when the signal changes rapidly.
+
+    Fast changes (|current - prev| > threshold) use alpha=0.6 to track quickly.
+    Stable signals use alpha=0.25 to smooth out noise.
+    """
+    alpha = 0.6 if abs(current - prev) > threshold else 0.25
+    return alpha * current + (1.0 - alpha) * prev
 
 
 # Live feedback stability tuning (window sizes, EMA, hysteresis, debounce).
@@ -1080,6 +1095,7 @@ def _process_live_frame_message(
     raw_angles = _extract_angles(live_landmarks, live_hand_landmarks)
     # Temporal smoothing: sliding window mean + EMA to reduce jitter.
     live_angles = state.angle_smoother.update(raw_angles)
+    normalized_live_landmarks = normalize_pose_landmarks_frame(live_landmarks)
     now_ms = t_now * 1000.0
 
     _IDLE_ANGLE_THRESHOLD = 3.0
@@ -1100,6 +1116,7 @@ def _process_live_frame_message(
 
     user_frame = {
         "angles": live_angles,
+        "normalized_landmarks": normalized_live_landmarks,
     }
 
     match_t0 = time.perf_counter()
@@ -1148,7 +1165,7 @@ def _process_live_frame_message(
     if state.smoothed_score is None:
         state.smoothed_score = best_score
     else:
-        state.smoothed_score = 0.5 * best_score + 0.5 * state.smoothed_score
+        state.smoothed_score = adaptive_ema(state.smoothed_score, best_score)
     best_match["overall_score"] = state.smoothed_score
 
     # Threshold buffering + majority voting for stable joint statuses.
@@ -1183,7 +1200,7 @@ def _process_live_frame_message(
         exercise_weights=state.auto_weights,
     )
 
-    gt_frame = state.gt_norm[best_idx]
+    scored_ref_frame = state.gt_norm[best_idx]
 
     display_ref_idx = _closest_reference_index(state.ref_timestamps_ms, ref_time_ms)
     display_ref_frame = state.gt_norm[display_ref_idx]
@@ -1224,7 +1241,11 @@ def _process_live_frame_message(
         "pose_detected": True,
         "match_score": int(round(state.smoothed_score)),
         "matched_ref_frame_index": int(best_idx),
-        "matched_ref_source_frame": int(gt_frame.get("frame_index", best_idx)),
+        "matched_ref_source_frame": int(scored_ref_frame.get("frame_index", best_idx)),
+        "scored_ref_frame_index": int(best_idx),
+        "scored_ref_source_frame": int(scored_ref_frame.get("frame_index", best_idx)),
+        "display_ref_frame_index": int(display_ref_idx),
+        "display_ref_source_frame": int(display_ref_frame.get("frame_index", display_ref_idx)),
         "joint_diffs": {k: v.get("abs_diff", 0.0) for k, v in best_match.items() if isinstance(v, dict) and "abs_diff" in v},
         "joint_scores": best_match.get("joint_scores", {}),
         "joint_errors": best_match.get("joint_errors", {}),
@@ -1236,6 +1257,11 @@ def _process_live_frame_message(
         "connections": POSE_CONNECTIONS,
         "live_landmarks": live_landmarks,
         "live_hand_landmarks": live_hand_landmarks,
+        "scored_ref_landmarks": scored_ref_frame.get("landmarks", []),
+        "scored_ref_hand_landmarks": scored_ref_frame.get("hand_landmarks", {"left": None, "right": None}),
+        "display_ref_landmarks": display_ref_frame.get("landmarks", []),
+        "display_ref_hand_landmarks": display_ref_frame.get("hand_landmarks", {"left": None, "right": None}),
+        # Backward-compatible aliases currently used by the frontend.
         "ref_landmarks": display_ref_frame.get("landmarks", []),
         "ref_hand_landmarks": display_ref_frame.get("hand_landmarks", {"left": None, "right": None}),
         "exercise_weights": state.auto_weights,

@@ -2007,28 +2007,37 @@
       warnRow.innerHTML = warns.map(text => `<span class="feedback-badge info">${text}</span>`).join('');
     }
 
-    function updateSyncIndicator(temporal) {
+    function updateSyncIndicator(temporal, frameMeta = null) {
       const chip = document.getElementById('syncChip');
       if (!temporal) { chip.style.display = 'none'; return; }
 
       const offsetSec = Math.abs(temporal.offset_ms / 1000).toFixed(1);
       const status = temporal.status;
+      const scoredRefIdx = Number(frameMeta?.scored_ref_frame_index);
+      const displayRefIdx = Number(frameMeta?.display_ref_frame_index);
+      const hasFrameDelta = Number.isFinite(scoredRefIdx) && Number.isFinite(displayRefIdx);
+      const frameDelta = hasFrameDelta ? (scoredRefIdx - displayRefIdx) : 0;
+      let frameHint = '';
+      if (hasFrameDelta && Math.abs(frameDelta) >= 2) {
+        const signedDelta = frameDelta > 0 ? `+${frameDelta}` : `${frameDelta}`;
+        frameHint = ` · Score ${signedDelta}f`;
+      }
 
       chip.className = 'sync-chip phase-chip';
       if (status === 'synced') {
         chip.style.display = 'inline-block';
-        chip.textContent = 'In Sync';
+        chip.textContent = `In Sync${frameHint}`;
       } else if (status === 'behind') {
         chip.style.display = 'inline-block';
         chip.classList.add('behind');
-        chip.textContent = `${offsetSec}s behind`;
+        chip.textContent = `${offsetSec}s behind${frameHint}`;
       } else if (status === 'far_behind') {
         chip.style.display = 'inline-block';
         chip.classList.add('far-behind');
-        chip.textContent = `${offsetSec}s behind`;
+        chip.textContent = `${offsetSec}s behind${frameHint}`;
       } else if (status === 'ahead') {
         chip.style.display = 'inline-block';
-        chip.textContent = `${offsetSec}s ahead`;
+        chip.textContent = `${offsetSec}s ahead${frameHint}`;
       } else {
         chip.style.display = 'none';
       }
@@ -2068,7 +2077,13 @@
       lastBackendStatuses.bone = data.bone_statuses || {};
 
       setupCanvasSize(refCanvas, refVideo);
-      drawRefSkeleton(refCtx, refCanvas, refVideo, data.ref_landmarks, data.connections);
+      drawRefSkeleton(
+        refCtx,
+        refCanvas,
+        refVideo,
+        data.display_ref_landmarks || data.ref_landmarks || data.scored_ref_landmarks,
+        data.connections,
+      );
 
       if (!clientPoseDetector) {
         setupCanvasSize(liveCanvas, liveVideo);
@@ -2080,7 +2095,7 @@
       showCoachingText(data.coaching_text || '');
       if (data.speech_text) speakCoaching(data.speech_text);
       renderFeedback(data.feedback, data.phase, data.rep_count);
-      updateSyncIndicator(data.temporal);
+      updateSyncIndicator(data.temporal, data);
 
       // Track session data for report
       if (sessionActive) {

@@ -24,6 +24,15 @@ uv run python main.py --extract-only data/ground_truth/squat.mp4
 npm install          # once, to get the prisma CLI
 uv run prisma migrate dev
 uv run prisma generate
+
+# Run all tests (must use uv run — dtaidistance is only in the uv env)
+uv run python -m pytest
+
+# Run a single test file
+uv run python -m pytest tests/test_exercise_alias_resolution.py
+
+# Run a specific test case
+uv run python -m pytest tests/test_handedness_alignment.py::HandednessAlignmentTests::test_reconciliation_handles_mirrored_view
 ```
 
 ## Architecture
@@ -46,6 +55,10 @@ Data flows in this order:
 7. **`filters.py`** — `LandmarkSmoother` (33 pose landmarks) and `HandLandmarkSmoother` (21 landmarks × 2 hands) both use One Euro Filter.
 8. **`state_machine.py`** — `ExerciseStateMachine` detects READY→DOWN→HOLD→UP phases and counts reps.
 9. **`visualizer.py`** — Side-by-side OpenCV frames with glowing body skeleton, `draw_hand_skeleton()` overlay, score bar, coaching bubble, and correction arrows.
+10. **`rep_tracker.py`** — In-memory aggregation of `FrameScore → RepResult → SetResult → SessionResult`. No database or Flask imports; safe for both CLI and Flask. Holds `RepTracker` class and the `FrameScore`/`RepResult`/`SetResult`/`SessionResult` dataclasses.
+11. **`report_generator.py`** — Pure data-transformation layer (no DB/Flask imports) that converts `RepTracker` outputs into JSON-serialisable report dicts for the API and frontend. Builds problem-joint rankings using `reportlab`-ready severity tiers (mild < 10°, moderate < 20°, critical ≥ 20°).
+12. **`stability.py`** — Real-time feedback stabilizers: `AngleSmoother` (sliding-window + EMA), `JointStatusStabilizer` (hysteresis + majority voting), `FeedbackDebouncer`, and `FeedbackStabilizer` (phase-gated speech with cooldown).
+13. **`skeleton_svg.py`** — SVG skeleton diagram generator that overlays problem joints (from report data) onto a canonical MediaPipe skeleton for visual PDF/HTML reports.
 
 ### `app.py` internals
 
@@ -57,7 +70,11 @@ Data flows in this order:
 
 ### Database (Prisma + PostgreSQL)
 
-Schema: `User`, `Session`, `Video`, `Category`, `ExerciseReport`. All IDs are UUIDs. Python client uses sync interface (`interface = "sync"`).
+Schema: `User`, `Session`, `Video`, `Category`, `ExerciseReport`, `ExerciseSession`, `SetReport`, `SessionReport`, `Reminder`. All IDs are UUIDs. Python client uses sync interface (`interface = "sync"`).
+
+- `ExerciseSession` — top-level session record linking a user, exercise, and optional reference video; owns `SetReport[]` and one optional `SessionReport`.
+- `SetReport` / `SessionReport` — store the JSON payloads produced by `ReportGenerator` (via `reportJson` column).
+- `Reminder` — user-scheduled exercise reminders indexed by `(userId, remindAt)`.
 
 Required env vars (`.env`):
 ```
