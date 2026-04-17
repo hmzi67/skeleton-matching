@@ -211,6 +211,37 @@ def _draw_glowing_joint(
     cv2.circle(frame, pt, max(2, radius // 2), (255, 255, 255), -1, cv2.LINE_AA)
 
 
+def _draw_hand_absent_indicator(
+    frame: np.ndarray,
+    wrist_pos_normalized: tuple[float, float],
+    side: str,
+) -> None:
+    """Draw a red dashed circle at wrist to indicate hand tracking failure.
+
+    Parameters
+    ----------
+    frame : np.ndarray
+        Video frame (BGR).
+    wrist_pos_normalized : tuple[float, float]
+        Wrist position in normalized coordinates (x_norm, y_norm) in [0, 1].
+    side : str
+        "left" or "right" for label.
+    """
+    h, w = frame.shape[:2]
+    cx = int(wrist_pos_normalized[0] * w)
+    cy = int(wrist_pos_normalized[1] * h)
+
+    # Red dashed circle (BGR: blue=0, green=60, red=200)
+    cv2.circle(frame, (cx, cy), 30, (0, 60, 200), 2)
+
+    # Label below the circle
+    label = f"{side.upper()} hand lost"
+    cv2.putText(
+        frame, label, (cx - 45, cy + 50),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 60, 200), 1
+    )
+
+
 def draw_glowing_skeleton(
     frame: np.ndarray,
     landmarks: list[dict],

@@ -240,6 +240,7 @@ class FeedbackStabilizer:
         now_ms: float,
         *,
         rep_summary_text: str | None = None,
+        force: bool = False,
     ) -> tuple[str, str | None]:
         """Return (stable_text, speech_text or None)."""
         if phase == self._last_phase:
@@ -252,6 +253,8 @@ class FeedbackStabilizer:
 
         if rep_summary_text:
             stable_text, changed = self._debouncer.update(rep_summary_text, force=True)
+        elif force:
+            stable_text, changed = self._debouncer.update(candidate_text, force=True)
         elif phase_stable:
             stable_text, changed = self._debouncer.update(candidate_text)
         else:

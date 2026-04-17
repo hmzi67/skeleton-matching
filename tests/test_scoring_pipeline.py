@@ -10,6 +10,7 @@ from src.exercise_weights import (
     HAND_JOINT_NAMES,
     MIN_WEIGHT_RATIO,
     ALL_JOINT_NAMES,
+    compute_auto_weights,
     detect_dominant_modality,
 )
 from src.matcher import (
@@ -92,6 +93,71 @@ class DominantModalityTests(unittest.TestCase):
 
     def test_empty_weights_returns_mixed(self) -> None:
         self.assertEqual(detect_dominant_modality({}), "mixed")
+
+
+class ExpectedHandSideInferenceTests(unittest.TestCase):
+    def test_left_dominant_reference_infers_left_side(self) -> None:
+        gt_norm = [
+            {
+                "angles": {
+                    "left_hand_index_curl": 20.0,
+                    "left_hand_middle_curl": 30.0,
+                    "right_hand_index_curl": 45.0,
+                    "right_hand_middle_curl": 47.0,
+                }
+            },
+            {
+                "angles": {
+                    "left_hand_index_curl": 105.0,
+                    "left_hand_middle_curl": 112.0,
+                    "right_hand_index_curl": 46.0,
+                    "right_hand_middle_curl": 48.0,
+                }
+            },
+            {
+                "angles": {
+                    "left_hand_index_curl": 35.0,
+                    "left_hand_middle_curl": 42.0,
+                    "right_hand_index_curl": 44.0,
+                    "right_hand_middle_curl": 46.0,
+                }
+            },
+        ]
+
+        auto = compute_auto_weights(gt_norm)
+        self.assertEqual(auto.get("expected_hand_side"), "left")
+        self.assertGreater(float(auto.get("hand_side_confidence", 0.0)), 0.0)
+
+    def test_balanced_reference_does_not_force_side(self) -> None:
+        gt_norm = [
+            {
+                "angles": {
+                    "left_hand_index_curl": 30.0,
+                    "right_hand_index_curl": 32.0,
+                    "left_hand_middle_curl": 40.0,
+                    "right_hand_middle_curl": 39.0,
+                }
+            },
+            {
+                "angles": {
+                    "left_hand_index_curl": 95.0,
+                    "right_hand_index_curl": 93.0,
+                    "left_hand_middle_curl": 101.0,
+                    "right_hand_middle_curl": 99.0,
+                }
+            },
+            {
+                "angles": {
+                    "left_hand_index_curl": 28.0,
+                    "right_hand_index_curl": 30.0,
+                    "left_hand_middle_curl": 37.0,
+                    "right_hand_middle_curl": 38.0,
+                }
+            },
+        ]
+
+        auto = compute_auto_weights(gt_norm)
+        self.assertIsNone(auto.get("expected_hand_side"))
 
 
 # ---------------------------------------------------------------------------

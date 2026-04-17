@@ -177,6 +177,11 @@ LIVE_PHASE_STABLE_FRAMES = max(2, int(os.environ.get("LIVE_PHASE_STABLE_FRAMES",
 LIVE_SPEECH_COOLDOWN_MS = max(500, int(os.environ.get("LIVE_SPEECH_COOLDOWN_MS", "2500")))
 LIVE_SMOOTH_DEBUG = os.environ.get("LIVE_SMOOTH_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
 
+# Side-aware coaching/scoring controls.
+HAND_SIDE_STABLE_FRAMES = max(1, int(os.environ.get("HAND_SIDE_STABLE_FRAMES", "3")))
+HAND_SIDE_MIN_CONFIDENCE = _clamp(float(os.environ.get("HAND_SIDE_MIN_CONFIDENCE", "0.45")), 0.0, 1.0)
+HAND_SIDE_MIN_CONF_FOR_NO_HAND = _clamp(float(os.environ.get("HAND_SIDE_MIN_CONF_FOR_NO_HAND", "0.60")), 0.0, 1.0)
+
 
 def _resolve_model_path() -> str:
     preferred = _MODEL_PATHS.get(_DEFAULT_MODEL_TIER) or _MODEL_PATHS["full"]
@@ -302,11 +307,16 @@ class LiveSessionState:
     primary_joint: str = "left_knee"
     primary_min: float = 120.0
     primary_max: float = 170.0
+    expected_hand_side: str | None = None
+    expected_hand_confidence: float = 0.0
     smoothed_score: float | None = None
     last_live_angles: dict[str, float] | None = None
     last_live_ts_ms: float | None = None
     no_pose_frame_count: int = 0
     idle_frame_count: int = 0
+    hand_side_state: str = "not_applicable"
+    hand_side_candidate: str = "not_applicable"
+    hand_side_streak: int = 0
     target_reps: int | None = None
     temporal_aligner: TemporalAligner = field(default_factory=TemporalAligner)
     phase_machine: ExerciseStateMachine = field(default_factory=ExerciseStateMachine)
@@ -771,6 +781,97 @@ def _compute_live_velocities(
     return velocities
 
 
+def _detected_hand_side(hand_landmarks: dict[str, list[dict] | None] | None) -> str:
+    """Return detected side label: left, right, both, or none."""
+    if not hand_landmarks:
+        return "none"
+    left_detected = bool(hand_landmarks.get("left"))
+    right_detected = bool(hand_landmarks.get("right"))
+    if left_detected and right_detected:
+        return "both"
+    if left_detected:
+        return "left"
+    if right_detected:
+        return "right"
+    return "none"
+
+
+def _classify_hand_side_state(
+    expected_side: str | None,
+    expected_confidence: float,
+    hand_landmarks: dict[str, list[dict] | None] | None,
+) -> dict[str, float | str | None]:
+    """Classify whether the expected hand side is currently satisfied."""
+    detected_side = _detected_hand_side(hand_landmarks)
+
+    if not expected_side or expected_confidence < HAND_SIDE_MIN_CONFIDENCE:
+        return {
+            "state": "not_applicable",
+            "detected_side": detected_side,
+            "expected_side": expected_side,
+            "score_multiplier": 1.0,
+        }
+
+    if detected_side in (expected_side, "both"):
+        state = "correct_side_present"
+    elif detected_side == "none":
+        state = "no_hand_detected"
+    else:
+        state = "wrong_side_only"
+
+    multiplier = _hand_side_multiplier_for_state(state, expected_confidence)
+
+    return {
+        "state": state,
+        "detected_side": detected_side,
+        "expected_side": expected_side,
+        "score_multiplier": round(multiplier, 3),
+    }
+
+
+def _hand_side_multiplier_for_state(side_state: str, expected_confidence: float) -> float:
+    """Return score multiplier for the current side-state classification."""
+    if side_state == "wrong_side_only":
+        # Strong confidence on expected side should penalize wrong-hand usage more.
+        return max(0.2, 0.5 - (0.35 * expected_confidence))
+    if side_state == "no_hand_detected" and expected_confidence >= HAND_SIDE_MIN_CONF_FOR_NO_HAND:
+        return max(0.35, 0.7 - (0.35 * expected_confidence))
+    return 1.0
+
+
+def _stabilize_hand_side_state(state: LiveSessionState, raw_state: str) -> str:
+    """Apply a short streak filter to avoid hand-side state flicker."""
+    if raw_state == state.hand_side_candidate:
+        state.hand_side_streak += 1
+    else:
+        state.hand_side_candidate = raw_state
+        state.hand_side_streak = 1
+
+    if state.hand_side_streak >= HAND_SIDE_STABLE_FRAMES:
+        state.hand_side_state = raw_state
+
+    return state.hand_side_state
+
+
+def _hand_side_instruction(
+    side_state: str,
+    expected_side: str | None,
+    detected_side: str,
+) -> str:
+    """Return explicit side-correction guidance for live coaching."""
+    if not expected_side:
+        return ""
+
+    expected_label = f"{expected_side} hand"
+
+    if side_state == "wrong_side_only":
+        detected_label = "right hand" if detected_side == "right" else "left hand"
+        return f"Wrong hand detected ({detected_label}) — please use your {expected_label}."
+    if side_state == "no_hand_detected":
+        return f"Please show your {expected_label} clearly in the frame."
+    return ""
+
+
 # Hand finger-curl joint names per side — used to derive an aggregate hand status.
 _HAND_CURL_JOINTS: dict[str, list[str]] = {
     "left_hand":  ["left_hand_thumb_curl",  "left_hand_index_curl",  "left_hand_middle_curl",
@@ -945,6 +1046,8 @@ def _build_session_config(
     primary_joint = auto["primary_joint"]
     primary_min = auto["primary_min"]
     primary_max = auto["primary_max"]
+    expected_hand_side = auto.get("expected_hand_side")
+    expected_hand_confidence = float(auto.get("hand_side_confidence", 0.0) or 0.0)
 
     # If the resolved exercise has a curated primary angle, prefer the
     # first entry so ROM thresholds below are computed from the joint
@@ -985,6 +1088,8 @@ def _build_session_config(
         "primary_joint": primary_joint,
         "primary_min": primary_min,
         "primary_max": primary_max,
+        "expected_hand_side": expected_hand_side,
+        "expected_hand_confidence": expected_hand_confidence,
         "phase_machine": phase_machine,
         "resolved_exercise": resolved,
     }
@@ -993,7 +1098,7 @@ def _build_session_config(
 # Bump this constant whenever weight-selection / feedback logic changes so
 # in-memory sessions from a previous app start are discarded instead of
 # silently reusing stale weights.
-LIVE_STATE_VERSION = "2026-04-09-feedback-stability-v1"
+LIVE_STATE_VERSION = "2026-04-16-side-aware-feedback-v1"
 
 
 def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveSessionState:
@@ -1020,6 +1125,8 @@ def _get_or_create_live_state(user_id: str, ref_id: str, exercise: str) -> LiveS
         primary_joint=cfg["primary_joint"],
         primary_min=cfg["primary_min"],
         primary_max=cfg["primary_max"],
+        expected_hand_side=cfg.get("expected_hand_side"),
+        expected_hand_confidence=float(cfg.get("expected_hand_confidence", 0.0) or 0.0),
         phase_machine=cfg["phase_machine"],
     )
     state.state_version = LIVE_STATE_VERSION  # type: ignore[attr-defined]
@@ -1056,6 +1163,15 @@ def _process_live_frame_message(
             state.last_live_angles = None
             state.last_live_ts_ms = None
             state.no_pose_frame_count = _NO_POSE_RESET_FRAME_LIMIT
+
+        side_state = "not_applicable"
+        side_multiplier = 1.0
+        coaching_text = "Step fully into frame"
+        if state.expected_hand_side and state.expected_hand_confidence >= HAND_SIDE_MIN_CONFIDENCE:
+            side_state = "no_hand_detected"
+            side_multiplier = _hand_side_multiplier_for_state(side_state, state.expected_hand_confidence)
+            coaching_text = f"Please show your {state.expected_hand_side} hand clearly in the frame."
+
         payload = {
             "type": "no_pose",
             "pose_detected": False,
@@ -1066,14 +1182,22 @@ def _process_live_frame_message(
             "joint_statuses": {},
             "bone_statuses": {},
             "correction_arrows": [],
-            "coaching_text": "Step fully into frame",
+            "coaching_text": coaching_text,
             "speech_text": None,
+            "hand_side": {
+                "state": side_state,
+                "expected_side": state.expected_hand_side,
+                "detected_side": "none",
+                "confidence": round(state.expected_hand_confidence, 3),
+                "score_multiplier": round(side_multiplier, 3),
+            },
             "feedback": {
                 "headline": "No pose detected",
-                "priority_fix": "Step fully into frame",
+                "priority_fix": coaching_text,
                 "top_joint_feedback": [],
                 "velocity_feedback": [],
                 "symmetry_warnings": [],
+                "side_feedback": coaching_text,
             },
             "phase": state.phase_machine.phase,
             "rep_count": int(state.phase_machine.rep_count),
@@ -1097,6 +1221,23 @@ def _process_live_frame_message(
     live_angles = state.angle_smoother.update(raw_angles)
     normalized_live_landmarks = normalize_pose_landmarks_frame(live_landmarks)
     now_ms = t_now * 1000.0
+
+    raw_side_ctx = _classify_hand_side_state(
+        state.expected_hand_side,
+        state.expected_hand_confidence,
+        live_hand_landmarks,
+    )
+    stable_side_state = _stabilize_hand_side_state(state, str(raw_side_ctx["state"]))
+    side_ctx = {
+        "state": stable_side_state,
+        "expected_side": state.expected_hand_side,
+        "detected_side": str(raw_side_ctx["detected_side"]),
+        "confidence": round(state.expected_hand_confidence, 3),
+        "score_multiplier": round(
+            _hand_side_multiplier_for_state(stable_side_state, state.expected_hand_confidence),
+            3,
+        ),
+    }
 
     _IDLE_ANGLE_THRESHOLD = 3.0
     _IDLE_FRAME_LIMIT = 10
@@ -1147,6 +1288,11 @@ def _process_live_frame_message(
 
     if not best_match:
         return {"type": "error", "error": "matching_failed"}
+
+    side_score_multiplier = float(side_ctx["score_multiplier"])
+    if side_score_multiplier < 1.0:
+        best_score *= side_score_multiplier
+        best_match["overall_score"] = best_score
 
     # Guard against inflated scores while the user stays mostly static.
     # HOLD can be legitimately stable, so allow a slightly higher cap there.
@@ -1210,21 +1356,33 @@ def _process_live_frame_message(
     correction_arrows = _compute_correction_arrows(best_match, live_landmarks, state.auto_weights)
 
     joint_fb = feedback.get("joint_feedback", [])
-    coaching_text = joint_fb[0]["instruction"] if joint_fb else (
-        "Great form!" if state.smoothed_score >= 80 else feedback.get("priority_fix", "")
+    side_instruction = _hand_side_instruction(
+        str(side_ctx["state"]),
+        state.expected_hand_side,
+        str(side_ctx["detected_side"]),
     )
-
-    if user_is_idle:
-        coaching_text = "Start following the reference exercise"
 
     timing_status = aligner.timing_status
     offset_ms = aligner.offset_ms
 
-    if not user_is_idle:
-        if timing_status == "far_behind" and state.smoothed_score >= 70:
-            coaching_text = "Good form! Try to keep up with the model"
-        elif timing_status == "behind" and state.smoothed_score >= 85:
-            coaching_text = coaching_text or "Great form!"
+    coaching_intent = "fallback"
+    if side_instruction:
+        coaching_text = side_instruction
+        coaching_intent = "side"
+    elif joint_fb:
+        coaching_text = joint_fb[0]["instruction"]
+        coaching_intent = "joint"
+    elif user_is_idle:
+        coaching_text = "Start following the reference exercise"
+        coaching_intent = "idle"
+    elif timing_status == "far_behind" and state.smoothed_score >= 70:
+        coaching_text = "Good form! Try to keep up with the model"
+        coaching_intent = "timing"
+    elif timing_status == "behind" and state.smoothed_score >= 85:
+        coaching_text = "Good form! Try to keep up with the model"
+        coaching_intent = "timing"
+    else:
+        coaching_text = "Great form!" if state.smoothed_score >= 80 else feedback.get("priority_fix", "")
 
     # Debounce + phase-gate feedback, and only speak on stable changes.
     stable_text, speech_text = state.feedback_stabilizer.update(
@@ -1232,6 +1390,7 @@ def _process_live_frame_message(
         phase,
         now_ms,
         rep_summary_text=rep_summary_text,
+        force=(coaching_intent == "side"),
     )
     coaching_text = stable_text
     feedback["priority_fix"] = coaching_text
@@ -1253,6 +1412,7 @@ def _process_live_frame_message(
         "bone_statuses": bone_statuses,
         "correction_arrows": correction_arrows,
         "coaching_text": coaching_text,
+        "coaching_intent": coaching_intent,
         "speech_text": speech_text,
         "connections": POSE_CONNECTIONS,
         "live_landmarks": live_landmarks,
@@ -1264,6 +1424,7 @@ def _process_live_frame_message(
         # Backward-compatible aliases currently used by the frontend.
         "ref_landmarks": display_ref_frame.get("landmarks", []),
         "ref_hand_landmarks": display_ref_frame.get("hand_landmarks", {"left": None, "right": None}),
+        "hand_side": side_ctx,
         "exercise_weights": state.auto_weights,
         "feedback": {
             "headline": feedback.get("headline", ""),
@@ -1271,6 +1432,7 @@ def _process_live_frame_message(
             "top_joint_feedback": feedback.get("joint_feedback", [])[:3],
             "velocity_feedback": feedback.get("velocity_feedback", []),
             "symmetry_warnings": feedback.get("symmetry_warnings", []),
+            "side_feedback": side_instruction,
         },
         "phase": phase,
         "rep_count": int(state.phase_machine.rep_count),
@@ -1809,6 +1971,8 @@ if sock is not None:
             primary_joint=cfg["primary_joint"],
             primary_min=cfg["primary_min"],
             primary_max=cfg["primary_max"],
+            expected_hand_side=cfg.get("expected_hand_side"),
+            expected_hand_confidence=float(cfg.get("expected_hand_confidence", 0.0) or 0.0),
             phase_machine=cfg["phase_machine"],
             target_reps=target_reps,
         )
@@ -1819,6 +1983,8 @@ if sock is not None:
             "frame_count": len(gt_norm),
             "connections": POSE_CONNECTIONS,
             "target_reps": target_reps,
+            "expected_hand_side": state.expected_hand_side,
+            "expected_hand_confidence": round(state.expected_hand_confidence, 3),
         }))
 
         while True:

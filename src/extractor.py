@@ -98,8 +98,49 @@ HAND_LANDMARK_NAMES: dict[int, str] = {
 # Minimum mean visibility across all pose landmarks to keep a frame.
 _MIN_MEAN_VISIBILITY = 0.5
 
+# Minimum per-landmark visibility to include in output (0.0–1.0).
+MIN_LANDMARK_VISIBILITY = 0.5
+
+# Minimum hand detection confidence (score) to include hand results.
+MIN_HAND_DETECTION_CONFIDENCE = 0.6
+
 # MediaPipe Solutions hands module (no separate model file required).
 _mp_hands = mp.solutions.hands
+
+
+# ---------------------------------------------------------------------------
+# Wrist reconciliation
+# ---------------------------------------------------------------------------
+
+
+def _reconcile_wrist(
+    pose_wrist: dict | None,
+    hand_wrist_lm0: dict | None,
+    hand_detection_score: float,
+    min_hand_confidence: float = MIN_HAND_DETECTION_CONFIDENCE,
+) -> tuple[dict | None, str]:
+    """Reconcile pose and hand model wrist landmarks, preferring hand when confident.
+
+    Parameters
+    ----------
+    pose_wrist : dict | None
+        Wrist landmark from PoseLandmarker (if available and not filtered).
+    hand_wrist_lm0 : dict | None
+        Wrist landmark from hand model (lm0 of the hand landmark list).
+    hand_detection_score : float
+        Detection confidence score for the hand.
+    min_hand_confidence : float
+        Threshold above which to prefer hand wrist.
+
+    Returns
+    -------
+    tuple[dict | None, str]
+        (best_wrist_landmark, source_label) where source_label is
+        "hand", "pose", or None if both are unavailable.
+    """
+    if hand_wrist_lm0 is not None and hand_detection_score >= min_hand_confidence:
+        return hand_wrist_lm0, "hand"
+    return pose_wrist, "pose" if pose_wrist is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -188,17 +229,22 @@ def extract_skeleton_from_video(
 
             if pose_results.pose_landmarks and len(pose_results.pose_landmarks) > 0:
                 pose = pose_results.pose_landmarks[0]
-                landmarks_list = [
-                    {
-                        "x": lm.x,
-                        "y": lm.y,
-                        "z": lm.z,
-                        "visibility": lm.visibility,
-                    }
-                    for lm in pose
-                ]
+                landmarks_list = []
+                for lm in pose:
+                    # Filter out low-visibility landmarks by setting to None.
+                    if lm.visibility < MIN_LANDMARK_VISIBILITY:
+                        landmarks_list.append(None)
+                    else:
+                        landmarks_list.append({
+                            "x": lm.x,
+                            "y": lm.y,
+                            "z": lm.z,
+                            "visibility": lm.visibility,
+                        })
 
-                mean_vis = sum(l["visibility"] for l in landmarks_list) / len(landmarks_list)
+                # Compute mean visibility from non-None landmarks.
+                valid_visibilities = [l["visibility"] for l in landmarks_list if l is not None]
+                mean_vis = sum(valid_visibilities) / len(valid_visibilities) if valid_visibilities else 0.0
 
                 if mean_vis >= min_mean_visibility:
                     # ---- Hand detection ----
@@ -219,6 +265,11 @@ def extract_skeleton_from_video(
                             hand_results.multi_handedness,
                             hand_results.multi_hand_landmarks,
                         ):
+                            # Filter hand results by detection confidence.
+                            score = handedness.classification[0].score
+                            if score < MIN_HAND_DETECTION_CONFIDENCE:
+                                continue  # skip low-confidence detections
+
                             # MediaPipe reports handedness from the camera's POV.
                             label = handedness.classification[0].label.lower()
                             hand_lms_dict[label] = [
@@ -233,12 +284,40 @@ def extract_skeleton_from_video(
 
                     hand_lms_dict = reconcile_hand_sides(landmarks_list, hand_lms_dict)
 
+                    # Wrist reconciliation: prefer hand wrist when confidence is high.
+                    wrist_source = {"left": None, "right": None}
+                    hand_confidence_scores = {}
+
+                    # Re-scan hand results to capture scores for reconciliation.
+                    if hand_results.multi_handedness and hand_results.multi_hand_landmarks:
+                        for handedness, hand_lms in zip(
+                            hand_results.multi_handedness,
+                            hand_results.multi_hand_landmarks,
+                        ):
+                            label = handedness.classification[0].label.lower()
+                            score = handedness.classification[0].score
+                            hand_confidence_scores[label] = score
+
+                    for side in ("left", "right"):
+                        pose_wrist_idx = 15 if side == "left" else 16
+                        pose_wrist = landmarks_list[pose_wrist_idx] if pose_wrist_idx < len(landmarks_list) else None
+
+                        hand_wrist = None
+                        hand_score = 0.0
+                        if hand_lms_dict.get(side):
+                            hand_wrist = hand_lms_dict[side][0]  # first landmark is wrist
+                            hand_score = hand_confidence_scores.get(side, 0.0)
+
+                        _, source = _reconcile_wrist(pose_wrist, hand_wrist, hand_score)
+                        wrist_source[side] = source
+
                     skeleton_data.append(
                         {
                             "frame_index": frame_index,
                             "timestamp_ms": round(timestamp_ms, 3),
                             "landmarks": landmarks_list,
                             "hand_landmarks": hand_lms_dict,
+                            "wrist_source": wrist_source,
                         }
                     )
                 else:

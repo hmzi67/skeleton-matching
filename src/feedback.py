@@ -436,7 +436,11 @@ def generate_feedback(
 
     # Priority fix = most important single correction.
     if phase == "HOLD":
-        priority_fix = "Hold steady — maintain your position"
+        if joint_feedback:
+            hold_focus = joint_feedback[0]["instruction"].rstrip(".")
+            priority_fix = f"Hold steady — {hold_focus}"
+        else:
+            priority_fix = "Hold steady — maintain your position"
     elif joint_feedback:
         priority_fix = joint_feedback[0]["instruction"]
     elif score >= 90:

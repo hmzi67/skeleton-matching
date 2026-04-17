@@ -62,6 +62,11 @@ _MIN_WEIGHT = 0.01
 # contributing free "good" points on close-up hand exercises.
 MIN_WEIGHT_RATIO: float = 0.15
 
+# Expected-side inference thresholds for hand-driven references.
+_MIN_HAND_ACTIVITY_FOR_SIDE = 15.0
+_MIN_HAND_WEIGHT_SHARE_FOR_SIDE = 0.35
+_HAND_DOMINANCE_RATIO_FOR_SIDE = 1.35
+
 # Public set of hand joint names used by detect_dominant_modality() and tests.
 # Mirrors _HAND_JOINT_NAMES but as an O(1)-lookup frozenset.
 HAND_JOINT_NAMES: frozenset[str] = frozenset(_HAND_JOINT_NAMES)
@@ -247,7 +252,9 @@ _EXERCISE_ALIASES: dict[str, str] = {
     # Wrist
     "wrist":           "wrist_curl",
     "wrists":          "wrist_curl",
+    "wrist_curl":      "wrist_curl",
     "wrist_curls":     "wrist_curl",
+    "wrist curl":      "wrist_curl",
     # Bicep
     "bicep":           "bicep_curl",
     "biceps":          "bicep_curl",
@@ -349,7 +356,8 @@ def compute_auto_weights(
     -------
     dict
         ``{"weights": {joint: float}, "primary_joint": str,
-        "primary_min": float, "primary_max": float}``
+        "primary_min": float, "primary_max": float,
+        "expected_hand_side": str | None, "hand_side_confidence": float}``
     """
     # Collect all joint names that actually appear in the GT.
     observed_joints: set[str] = set()
@@ -376,6 +384,18 @@ def compute_auto_weights(
     ranges: dict[str, float] = {
         j: max(0.0, rom_max[j] - rom_min[j]) for j in candidate_joints
     }
+
+    # Estimate whether the reference is strongly one-hand dominant.
+    left_hand_activity = sum(
+        ranges.get(j, 0.0) for j in _HAND_JOINT_NAMES if j.startswith("left_hand_")
+    )
+    right_hand_activity = sum(
+        ranges.get(j, 0.0) for j in _HAND_JOINT_NAMES if j.startswith("right_hand_")
+    )
+    hand_activity_total = left_hand_activity + right_hand_activity
+
+    expected_hand_side: str | None = None
+    hand_side_confidence = 0.0
 
     # ------------------------------------------------------------------
     # Body-region awareness: the reference video may contain incidental
@@ -477,11 +497,33 @@ def compute_auto_weights(
     if wsum3 > 1e-9:
         weights = {j: w / wsum3 for j, w in weights.items()}
 
+    hand_weight_share = sum(
+        w for j, w in weights.items() if j in HAND_JOINT_NAMES
+    )
+    if (
+        hand_activity_total >= _MIN_HAND_ACTIVITY_FOR_SIDE
+        and hand_weight_share >= _MIN_HAND_WEIGHT_SHARE_FOR_SIDE
+    ):
+        stronger = max(left_hand_activity, right_hand_activity)
+        weaker = min(left_hand_activity, right_hand_activity)
+        dominance_ratio = stronger / max(weaker, 1e-6)
+        if dominance_ratio >= _HAND_DOMINANCE_RATIO_FOR_SIDE:
+            expected_hand_side = "left" if left_hand_activity >= right_hand_activity else "right"
+
+            # Blend activity and dominance to get a stable 0..1 confidence.
+            activity_strength = min(1.0, hand_activity_total / 40.0)
+            dominance_strength = min(1.0, (dominance_ratio - 1.0) / 1.5)
+            hand_side_confidence = round(activity_strength * dominance_strength, 3)
+
     return {
         "weights": weights,
         "primary_joint": primary_joint,
         "primary_min": rom_min[primary_joint],
         "primary_max": rom_max[primary_joint],
+        "expected_hand_side": expected_hand_side,
+        "hand_side_confidence": hand_side_confidence,
+        "left_hand_activity": round(left_hand_activity, 3),
+        "right_hand_activity": round(right_hand_activity, 3),
     }
 
 

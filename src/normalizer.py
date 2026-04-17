@@ -29,27 +29,33 @@ import numpy as np
 _VISIBILITY_THRESHOLD = 0.5
 
 
-def _vec(a: dict, b: dict) -> np.ndarray:
-    """Vector from landmark *a* to landmark *b* (3-D)."""
+def _vec(a: dict | None, b: dict | None) -> np.ndarray | None:
+    """Vector from landmark *a* to landmark *b* (3-D). Returns None if either is None."""
+    if a is None or b is None:
+        return None
     return np.array([b["x"] - a["x"], b["y"] - a["y"], b["z"] - a["z"]])
 
 
-def compute_angle(a: dict, b: dict, c: dict) -> float:
+def compute_angle(a: dict | None, b: dict | None, c: dict | None) -> float:
     """Compute the angle at vertex *b* formed by segments a→b and c→b.
 
     Parameters
     ----------
-    a, b, c : dict
-        Landmark dicts with ``x``, ``y``, ``z`` keys.
+    a, b, c : dict | None
+        Landmark dicts with ``x``, ``y``, ``z`` keys, or None if unavailable.
         *b* is the vertex joint; *a* and *c* are the adjacent joints.
 
     Returns
     -------
     float
-        Angle in **degrees** in the range [0, 180].
+        Angle in **degrees** in the range [0, 180], or 0.0 if any landmark is None.
     """
+    if a is None or b is None or c is None:
+        return 0.0
     v1 = _vec(b, a)
     v2 = _vec(b, c)
+    if v1 is None or v2 is None:
+        return 0.0
     dot = float(np.dot(v1, v2))
     mag = float(np.linalg.norm(v1) * np.linalg.norm(v2))
     if mag < 1e-9:
@@ -58,12 +64,15 @@ def compute_angle(a: dict, b: dict, c: dict) -> float:
     return float(np.degrees(np.arccos(cos_angle)))
 
 
-def _landmarks_visible(landmarks: list[dict], *indices: int) -> bool:
-    """Return True only if ALL listed landmarks meet visibility threshold."""
+def _landmarks_visible(landmarks: list[dict | None], *indices: int) -> bool:
+    """Return True only if ALL listed landmarks are non-None and meet visibility threshold."""
     for idx in indices:
         if idx >= len(landmarks):
             return False
-        if landmarks[idx].get("visibility", 0.0) < _VISIBILITY_THRESHOLD:
+        lm = landmarks[idx]
+        if lm is None:
+            return False
+        if lm.get("visibility", 0.0) < _VISIBILITY_THRESHOLD:
             return False
     return True
 
@@ -94,12 +103,15 @@ def _rotation_matrix_y(angle_rad: float) -> np.ndarray:
     ])
 
 
-def _align_to_x_axis(landmarks: list[dict]) -> list[dict]:
+def _align_to_x_axis(landmarks: list[dict | None]) -> list[dict | None]:
     """Rotate landmarks around the Y-axis so the shoulder vector
     (left_shoulder → right_shoulder) is aligned with the X-axis.
 
     This removes global facing-direction variance (camera angle).
     """
+    if landmarks[11] is None or landmarks[12] is None:
+        return landmarks
+
     left_sh = landmarks[11]
     right_sh = landmarks[12]
 
@@ -115,16 +127,19 @@ def _align_to_x_axis(landmarks: list[dict]) -> list[dict]:
 
     rot = _rotation_matrix_y(-angle)
 
-    rotated: list[dict] = []
+    rotated: list[dict | None] = []
     for lm in landmarks:
-        pt = np.array([lm["x"], lm["y"], lm["z"]])
-        rpt = rot @ pt
-        rotated.append({
-            "x": float(rpt[0]),
-            "y": float(rpt[1]),
-            "z": float(rpt[2]),
-            "visibility": lm["visibility"],
-        })
+        if lm is None:
+            rotated.append(None)
+        else:
+            pt = np.array([lm["x"], lm["y"], lm["z"]])
+            rpt = rot @ pt
+            rotated.append({
+                "x": float(rpt[0]),
+                "y": float(rpt[1]),
+                "z": float(rpt[2]),
+                "visibility": lm["visibility"],
+            })
     return rotated
 
 
@@ -362,13 +377,13 @@ def compute_hand_angles(hand_lms: list[dict], prefix: str) -> dict[str, float]:
     return _compute_hand_angles(hand_lms, prefix)
 
 
-def _compute_frame_angles(lms: list[dict]) -> dict[str, float]:
+def _compute_frame_angles(lms: list[dict | None]) -> dict[str, float]:
     """Compute all pose joint angles and symmetry ratios for a single frame.
 
     Parameters
     ----------
-    lms : list[dict]
-        The 33-landmark list for the frame.
+    lms : list[dict | None]
+        The 33-landmark list for the frame (landmarks can be None if filtered out).
 
     Returns
     -------
@@ -380,10 +395,12 @@ def _compute_frame_angles(lms: list[dict]) -> dict[str, float]:
     angles: dict[str, float] = {}
 
     for name, vertex, adj_a, adj_b in _ANGLE_DEFS:
-        # Confidence filtering: skip joints with low-visibility landmarks.
+        # Confidence filtering: skip joints with low-visibility or None landmarks.
         if not _landmarks_visible(lms, vertex, adj_a, adj_b):
             continue
-        angles[name] = compute_angle(lms[adj_a], lms[vertex], lms[adj_b])
+        angle = compute_angle(lms[adj_a], lms[vertex], lms[adj_b])
+        if angle > 0.0:  # only store non-zero angles
+            angles[name] = angle
 
     # Torso lean: angle of spine vector (hip_center → shoulder_center) from
     # the vertical axis.
@@ -395,7 +412,8 @@ def _compute_frame_angles(lms: list[dict]) -> dict[str, float]:
             k: (lms[11][k] + lms[12][k]) / 2.0 for k in ("x", "y", "z")
         }
         spine_vec = _vec(hip_center, shoulder_center)
-        angles["torso_lean"] = _angle_from_vertical(spine_vec)
+        if spine_vec is not None:
+            angles["torso_lean"] = _angle_from_vertical(spine_vec)
 
     # --- Symmetry ratios ---
     for left, right in _SYMMETRY_PAIRS:
@@ -432,7 +450,7 @@ _HAND_VELOCITY_JOINTS = [
 # ---------------------------------------------------------------------------
 
 
-def normalize_pose_landmarks_frame(landmarks: list[dict]) -> list[dict] | None:
+def normalize_pose_landmarks_frame(landmarks: list[dict | None]) -> list[dict] | None:
     """Normalize one pose-landmark frame with the same pipeline as sequences.
 
     Steps:
@@ -449,23 +467,33 @@ def normalize_pose_landmarks_frame(landmarks: list[dict]) -> list[dict] | None:
     if not landmarks or len(landmarks) <= 24:
         return None
 
+    # Check that hip landmarks are present.
+    if landmarks[23] is None or landmarks[24] is None:
+        return None
+
     # --- 1. TRANSLATE --------------------------------------------------
     hip_center_x = (landmarks[23]["x"] + landmarks[24]["x"]) / 2.0
     hip_center_y = (landmarks[23]["y"] + landmarks[24]["y"]) / 2.0
     hip_center_z = (landmarks[23]["z"] + landmarks[24]["z"]) / 2.0
 
-    translated: list[dict] = []
+    translated: list[dict | None] = []
     for lm in landmarks:
-        translated.append(
-            {
-                "x": lm["x"] - hip_center_x,
-                "y": lm["y"] - hip_center_y,
-                "z": lm["z"] - hip_center_z,
-                "visibility": lm.get("visibility", 1.0),
-            }
-        )
+        if lm is None:
+            translated.append(None)
+        else:
+            translated.append(
+                {
+                    "x": lm["x"] - hip_center_x,
+                    "y": lm["y"] - hip_center_y,
+                    "z": lm["z"] - hip_center_z,
+                    "visibility": lm.get("visibility", 1.0),
+                }
+            )
 
     # --- 2. SCALE ------------------------------------------------------
+    if translated[11] is None or translated[12] is None:
+        return None
+
     shoulder_center_x = (translated[11]["x"] + translated[12]["x"]) / 2.0
     shoulder_center_y = (translated[11]["y"] + translated[12]["y"]) / 2.0
     shoulder_center_z = (translated[11]["z"] + translated[12]["z"]) / 2.0
@@ -478,16 +506,19 @@ def normalize_pose_landmarks_frame(landmarks: list[dict]) -> list[dict] | None:
     if torso_length < 0.01:
         return None
 
-    scaled: list[dict] = []
+    scaled: list[dict | None] = []
     for lm in translated:
-        scaled.append(
-            {
-                "x": lm["x"] / torso_length,
-                "y": lm["y"] / torso_length,
-                "z": lm["z"] / torso_length,
-                "visibility": lm["visibility"],
-            }
-        )
+        if lm is None:
+            scaled.append(None)
+        else:
+            scaled.append(
+                {
+                    "x": lm["x"] / torso_length,
+                    "y": lm["y"] / torso_length,
+                    "z": lm["z"] / torso_length,
+                    "visibility": lm["visibility"],
+                }
+            )
 
     # --- 3. ROTATE -----------------------------------------------------
     return _align_to_x_axis(scaled)
