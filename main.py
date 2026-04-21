@@ -617,6 +617,10 @@ def main() -> None:
         "--generate-readme", action="store_true",
         help="Generate README.md and exit",
     )
+    parser.add_argument(
+        "--perf", action="store_true",
+        help="Print per-stage latency report at end of run",
+    )
 
     args = parser.parse_args()
 
@@ -647,9 +651,42 @@ def main() -> None:
 
     if args.gt and args.user:
         _run_comparison(args.gt, args.user)
+        if args.perf:
+            _print_perf_report()
         return
 
     parser.print_help()
+
+
+def _print_perf_report() -> None:
+    """Print the latency monitor's rolling-window report."""
+    from src.perf_monitor import monitor
+
+    report = monitor.report()
+    stages = report["stages"]
+    total = report["total_ms"]
+    fps = report["fps_estimate"]
+    budget = report["budget_ms"]
+    warning = report["warning_ms"]
+
+    status_color = (
+        "red" if report["over_budget"]
+        else "yellow" if report["over_warning"]
+        else "green"
+    )
+
+    table = Table(title="Per-Stage Latency (ms, rolling average)", show_lines=True)
+    table.add_column("Stage", style="cyan")
+    table.add_column("Avg ms", justify="right")
+    for stage, avg_ms in sorted(stages.items(), key=lambda x: -x[1]):
+        table.add_row(stage, f"{avg_ms:.2f}")
+    console.print()
+    console.print(table)
+    console.print(
+        f"[bold]Total:[/bold] [{status_color}]{total:.2f} ms/frame[/{status_color}]  "
+        f"(budget {budget:.0f} ms, warn {warning:.0f} ms)  "
+        f"→ ~{fps:.1f} FPS"
+    )
 
 
 if __name__ == "__main__":

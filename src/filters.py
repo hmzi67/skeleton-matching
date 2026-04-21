@@ -10,13 +10,20 @@ Reference: Casiez et al., "1€ Filter: A Simple Speed-based Low-pass Filter
 for Noisy Input in Interactive Systems" (CHI 2012).
 
 Provides:
-  - OneEuroFilter       — single-value filter
-  - LandmarkSmoother    — applies One Euro filtering to all 33 landmarks
+  - OneEuroFilter           — single-value filter
+  - LandmarkSmoother        — applies One Euro filtering to all 33 landmarks
+  - HandLandmarkSmoother    — same, for left/right hand landmarks (21 each)
+  - OpticalFlowValidator    — rejects implausible landmark jumps via Lucas-Kanade
 """
 
 from __future__ import annotations
 
 import math
+
+import cv2
+import numpy as np
+
+from src.perf_monitor import timed
 
 
 class OneEuroFilter:
@@ -229,3 +236,164 @@ class HandLandmarkSmoother:
         """Reset all filters (e.g. when hands are lost)."""
         self._left.reset()
         self._right.reset()
+
+
+class OpticalFlowValidator:
+    """Reject landmark jumps that exceed optical-flow-predicted motion.
+
+    Uses sparse Lucas-Kanade optical flow on the previous frame's landmark
+    positions to predict where each landmark *should* be in the current frame.
+    If the detector's reported position differs from the flow prediction by
+    more than ``max_residual_pixels``, we treat that landmark as a detection
+    snap and replace it with the flow prediction (with reduced confidence).
+
+    Accepts landmarks in either tuple form ``(x_norm, y_norm, vis)`` or
+    MediaPipe dict form ``{"x", "y", "visibility", ...}``; returns the same
+    shape it received, with ``None`` entries passed through unchanged.
+    """
+
+    def __init__(
+        self,
+        max_residual_pixels: float = 25.0,
+        num_landmarks: int = 33,
+        win_size: tuple[int, int] = (15, 15),
+        max_level: int = 2,
+    ) -> None:
+        self.max_residual_pixels = float(max_residual_pixels)
+        self.num_landmarks = num_landmarks
+        self.win_size = win_size
+        self.max_level = max_level
+        self._prev_gray: np.ndarray | None = None
+        self._prev_landmarks: list | None = None
+
+    def reset(self) -> None:
+        """Clear the previous-frame state (e.g. when tracking restarts)."""
+        self._prev_gray = None
+        self._prev_landmarks = None
+
+    @staticmethod
+    def _to_xy_vis(lm) -> tuple[float, float, float] | None:
+        """Normalize an entry into (x_norm, y_norm, vis) or None."""
+        if lm is None:
+            return None
+        if isinstance(lm, dict):
+            if "x" not in lm or "y" not in lm:
+                return None
+            return float(lm["x"]), float(lm["y"]), float(lm.get("visibility", 1.0))
+        if isinstance(lm, (tuple, list)) and len(lm) >= 2:
+            x = float(lm[0])
+            y = float(lm[1])
+            vis = float(lm[2]) if len(lm) >= 3 else 1.0
+            return x, y, vis
+        return None
+
+    @staticmethod
+    def _replace_xy(original, x_norm: float, y_norm: float, vis: float):
+        """Return a copy of ``original`` with its xy position overwritten."""
+        if isinstance(original, dict):
+            out = dict(original)
+            out["x"] = x_norm
+            out["y"] = y_norm
+            out["visibility"] = vis
+            return out
+        return (x_norm, y_norm, vis)
+
+    @timed("flow_validate")
+    def validate(
+        self,
+        frame_bgr: np.ndarray,
+        landmarks: list,
+        frame_shape: tuple[int, int] | None = None,
+    ) -> list:
+        """Validate the current-frame landmarks against optical flow.
+
+        Parameters
+        ----------
+        frame_bgr : np.ndarray
+            Current frame in BGR (H, W, 3).
+        landmarks : list
+            Per-landmark entries (dict, tuple, or None).
+        frame_shape : tuple[int, int], optional
+            (H, W). Defaults to ``frame_bgr.shape[:2]`` if omitted.
+
+        Returns
+        -------
+        list
+            Same shape as ``landmarks`` with snaps replaced by flow-predicted
+            positions at reduced confidence.
+        """
+        if frame_shape is None:
+            h, w = frame_bgr.shape[:2]
+        else:
+            h, w = frame_shape
+
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+        # First frame or fresh reset → record state, pass through unchanged.
+        if self._prev_gray is None or self._prev_landmarks is None:
+            self._prev_gray = gray
+            self._prev_landmarks = list(landmarks)
+            return landmarks
+
+        # Collect previous-frame pixel positions for landmarks present then.
+        prev_pts_list: list[list[float]] = []
+        idx_map: list[int] = []
+        for i, prev_lm in enumerate(self._prev_landmarks):
+            prev_norm = self._to_xy_vis(prev_lm)
+            if prev_norm is None:
+                continue
+            px, py, _ = prev_norm
+            prev_pts_list.append([px * w, py * h])
+            idx_map.append(i)
+
+        if not prev_pts_list:
+            self._prev_gray = gray
+            self._prev_landmarks = list(landmarks)
+            return landmarks
+
+        prev_pts = np.array(prev_pts_list, dtype=np.float32).reshape(-1, 1, 2)
+
+        next_pts, status, _err = cv2.calcOpticalFlowPyrLK(
+            self._prev_gray,
+            gray,
+            prev_pts,
+            None,
+            winSize=self.win_size,
+            maxLevel=self.max_level,
+            criteria=(
+                cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+                10,
+                0.03,
+            ),
+        )
+
+        validated = list(landmarks)
+        for j, i in enumerate(idx_map):
+            if i >= len(validated):
+                continue
+            if status[j][0] == 0:
+                continue  # flow tracking failed — trust detector
+            current = self._to_xy_vis(validated[i])
+            if current is None:
+                continue
+
+            predicted_x, predicted_y = float(next_pts[j][0][0]), float(next_pts[j][0][1])
+            actual_x = current[0] * w
+            actual_y = current[1] * h
+
+            residual = math.sqrt(
+                (predicted_x - actual_x) ** 2 + (predicted_y - actual_y) ** 2
+            )
+
+            if residual > self.max_residual_pixels:
+                new_vis = current[2] * 0.5
+                validated[i] = self._replace_xy(
+                    validated[i],
+                    predicted_x / w if w > 0 else current[0],
+                    predicted_y / h if h > 0 else current[1],
+                    new_vis,
+                )
+
+        self._prev_gray = gray
+        self._prev_landmarks = list(validated)
+        return validated

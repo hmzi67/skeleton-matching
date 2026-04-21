@@ -158,12 +158,19 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 def adaptive_ema(prev: float, current: float, threshold: float = 10.0) -> float:
-    """EMA with a higher alpha when the signal changes rapidly.
+    """Asymmetric EMA for live scores.
 
-    Fast changes (|current - prev| > threshold) use alpha=0.6 to track quickly.
-    Stable signals use alpha=0.25 to smooth out noise.
+    Drops in score should appear quickly (to avoid stale high scores while form
+    worsens), while rises are smoothed more conservatively to reduce jitter.
     """
-    alpha = 0.6 if abs(current - prev) > threshold else 0.25
+    delta = current - prev
+    magnitude = abs(delta)
+    if delta < 0:
+        # Fall faster than rise so bad-form frames are reflected promptly.
+        alpha = 0.85 if magnitude > threshold else 0.55
+    else:
+        # Rise more slowly to avoid inflated spikes from transient matches.
+        alpha = 0.40 if magnitude > threshold else 0.20
     return alpha * current + (1.0 - alpha) * prev
 
 
@@ -1670,6 +1677,13 @@ def _approved_exercise_catalog() -> list[dict]:
 @app.route("/api/exercises", methods=["GET"])
 def list_exercises():
     return jsonify(_approved_exercise_catalog())
+
+
+@app.route("/api/perf", methods=["GET"])
+def get_perf_report():
+    """Return the current pipeline latency monitor report."""
+    from src.perf_monitor import monitor
+    return jsonify(monitor.report())
 
 
 @app.route("/api/reminders", methods=["GET"])

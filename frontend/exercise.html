@@ -734,7 +734,7 @@
     </div>
 
     <div class="panel">
-      <div class="panel-label ref">Reference</div>
+      <div class="panel-label ref" id="refPanelLabel">Reference</div>
       <div class="placeholder" id="refPlaceholder">
         <div class="icon">
           <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -872,6 +872,7 @@
     const SEND_INTERVAL_MS = Math.round(1000 / MAX_SEND_FPS);
 
     const refVideo = document.getElementById('refVideo');
+    const refPanelLabel = document.getElementById('refPanelLabel');
     const refPlaceholder = document.getElementById('refPlaceholder');
     const refPlaceholderText = document.getElementById('refPlaceholderText');
     const uploaderChip = document.getElementById('uploaderChip');
@@ -2018,9 +2019,9 @@
       const hasFrameDelta = Number.isFinite(scoredRefIdx) && Number.isFinite(displayRefIdx);
       const frameDelta = hasFrameDelta ? (scoredRefIdx - displayRefIdx) : 0;
       let frameHint = '';
-      if (hasFrameDelta && Math.abs(frameDelta) >= 2) {
+      if (hasFrameDelta && Math.abs(frameDelta) >= 1) {
         const signedDelta = frameDelta > 0 ? `+${frameDelta}` : `${frameDelta}`;
-        frameHint = ` · Score ${signedDelta}f`;
+        frameHint = ` · Scored ${signedDelta}f`;
       }
 
       chip.className = 'sync-chip phase-chip';
@@ -2077,13 +2078,27 @@
       lastBackendStatuses.bone = data.bone_statuses || {};
 
       setupCanvasSize(refCanvas, refVideo);
+      const scoredRefIdx = Number(data.scored_ref_frame_index);
+      const displayRefIdx = Number(data.display_ref_frame_index);
+      const frameDelta = (Number.isFinite(scoredRefIdx) && Number.isFinite(displayRefIdx))
+        ? (scoredRefIdx - displayRefIdx)
+        : 0;
+      const refOverlayLandmarks =
+        data.scored_ref_landmarks || data.display_ref_landmarks || data.ref_landmarks;
+
       drawRefSkeleton(
         refCtx,
         refCanvas,
         refVideo,
-        data.display_ref_landmarks || data.ref_landmarks || data.scored_ref_landmarks,
+        refOverlayLandmarks,
         data.connections,
       );
+      if (Math.abs(frameDelta) >= 2) {
+        const signedDelta = frameDelta > 0 ? `+${frameDelta}` : `${frameDelta}`;
+        refPanelLabel.textContent = `Reference (Scored ${signedDelta}f)`;
+      } else {
+        refPanelLabel.textContent = 'Reference';
+      }
 
       if (!clientPoseDetector) {
         setupCanvasSize(liveCanvas, liveVideo);

@@ -37,7 +37,9 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from src.filters import OpticalFlowValidator
 from src.normalizer import reconcile_hand_sides
+from src.perf_monitor import timed
 
 # ---------------------------------------------------------------------------
 # Model path (heavy = model_complexity ≈ 2)
@@ -104,6 +106,11 @@ MIN_LANDMARK_VISIBILITY = 0.5
 # Minimum hand detection confidence (score) to include hand results.
 MIN_HAND_DETECTION_CONFIDENCE = 0.6
 
+# Ensemble (MediaPipe + MoveNet) placeholder. Blocked on tflite-runtime
+# compatibility with Python 3.12 — revisit when runtime story is clearer.
+# Keep False; there is no ensemble code path today.
+USE_ENSEMBLE: bool = False
+
 # MediaPipe Solutions hands module (no separate model file required).
 _mp_hands = mp.solutions.hands
 
@@ -141,6 +148,17 @@ def _reconcile_wrist(
     if hand_wrist_lm0 is not None and hand_detection_score >= min_hand_confidence:
         return hand_wrist_lm0, "hand"
     return pose_wrist, "pose" if pose_wrist is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Timed wrappers
+# ---------------------------------------------------------------------------
+
+
+@timed("pose_detect")
+def _detect_pose_timed(pose_landmarker, mp_image, timestamp_ms: int):
+    """Timed wrapper around pose_landmarker.detect_for_video."""
+    return pose_landmarker.detect_for_video(mp_image, timestamp_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +209,9 @@ def extract_skeleton_from_video(
     )
     pose_landmarker = PoseLandmarker.create_from_options(pose_options)
 
+    # Optical flow validator rejects implausible landmark jumps.
+    flow_validator = OpticalFlowValidator()
+
     skeleton_data: list[dict] = []
     frame_index = 0
     skipped = 0
@@ -225,7 +246,7 @@ def extract_skeleton_from_video(
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
             # ---- Pose detection ----
-            pose_results = pose_landmarker.detect_for_video(mp_image, int(timestamp_ms))
+            pose_results = _detect_pose_timed(pose_landmarker, mp_image, int(timestamp_ms))
 
             if pose_results.pose_landmarks and len(pose_results.pose_landmarks) > 0:
                 pose = pose_results.pose_landmarks[0]
@@ -247,6 +268,11 @@ def extract_skeleton_from_video(
                 mean_vis = sum(valid_visibilities) / len(valid_visibilities) if valid_visibilities else 0.0
 
                 if mean_vis >= min_mean_visibility:
+                    # Optical flow validation: reject landmarks that jumped
+                    # further than flow predicts (catches detector snaps).
+                    landmarks_list = flow_validator.validate(
+                        frame, landmarks_list, frame_shape=frame.shape[:2]
+                    )
                     # ---- Hand detection ----
                     # The solutions API needs a writable array.
                     frame_rgb.flags.writeable = True
@@ -321,8 +347,10 @@ def extract_skeleton_from_video(
                         }
                     )
                 else:
+                    flow_validator.reset()
                     skipped += 1
             else:
+                flow_validator.reset()
                 skipped += 1
 
             frame_index += 1

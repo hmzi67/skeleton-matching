@@ -25,6 +25,7 @@ import numpy as np
 from dtaidistance import dtw_ndim
 
 from src.exercise_weights import ALL_JOINT_NAMES, _JOINT_NAMES, _HAND_JOINT_NAMES
+from src.perf_monitor import timed
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,14 @@ _POSE_JOINT_LANDMARK_IDX: dict[str, int] = {
 _SPATIAL_DISTANCE_AT_MAX_PENALTY = 0.45
 _POSE_SPATIAL_BLEND_MIN = 0.15
 _POSE_SPATIAL_BLEND_MAX = 0.55
+_SPATIAL_VISIBILITY_THRESHOLD = 0.35
+
+# Whole-pose spatial consistency (generic, exercise-agnostic):
+# after landmark normalization, this penalizes globally misaligned posture even
+# when a few individual joint angles look acceptable.
+_POSE_SHAPE_KEYPOINTS: tuple[int, ...] = (11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28)
+_POSE_SHAPE_MIN_POINTS = 6
+_POSE_SHAPE_ERROR_AT_MAX_PENALTY = 0.25
 
 # ---------------------------------------------------------------------------
 # Velocity thresholds (informational only — NOT included in score)
@@ -89,12 +98,13 @@ _SYMMETRY_PAIRS = [
 
 _SYMMETRY_THRESHOLD = 0.85  # ratio below this flags asymmetry
 
-# Primary-joint floor: if any joint with exercise_weight >= 0.5 (pre-norm)
-# scores below PRIMARY_JOINT_SCORE_FLOOR (0–100), the overall score is capped
-# at OVERALL_SCORE_CAP_WHEN_PRIMARY_FAILS.  Applied before coverage_factor so
-# a poor primary joint cannot be rescued by high-scoring secondaries.
+# Primary-joint floor: determine "primary" joints dynamically from the supplied
+# exercise weights (top-weighted joints), then cap the overall score if any of
+# those joints fail badly. This keeps the rule generic across all exercises.
 PRIMARY_JOINT_SCORE_FLOOR: int = 40
 OVERALL_SCORE_CAP_WHEN_PRIMARY_FAILS: int = 70
+PRIMARY_JOINT_WEIGHT_RATIO: float = 0.70
+PRIMARY_JOINT_MIN_WEIGHT: float = 0.05
 
 
 def soft_cap(error: float, cap: float = 45.0) -> float:
@@ -171,7 +181,30 @@ def _valid_normalized_landmark(
         return None
     if "x" not in point or "y" not in point:
         return None
+    if point.get("visibility", 1.0) < _SPATIAL_VISIBILITY_THRESHOLD:
+        return None
     return point
+
+
+def _pose_shape_error_xy(
+    gt_lms: list[dict] | None,
+    user_lms: list[dict] | None,
+) -> float | None:
+    """Return mean XY landmark distance over core body keypoints.
+
+    This captures global posture mismatch that can be missed by angle-only
+    scoring in edge cases.
+    """
+    diffs: list[float] = []
+    for idx in _POSE_SHAPE_KEYPOINTS:
+        gt_point = _valid_normalized_landmark(gt_lms, idx)
+        user_point = _valid_normalized_landmark(user_lms, idx)
+        if gt_point is None or user_point is None:
+            continue
+        diffs.append(float(np.hypot(user_point["x"] - gt_point["x"], user_point["y"] - gt_point["y"])))
+    if len(diffs) < _POSE_SHAPE_MIN_POINTS:
+        return None
+    return float(np.mean(diffs))
 
 
 def _pose_joint_spatial_diff_xy(
@@ -215,6 +248,7 @@ def _blend_pose_joint_penalty(
 # ---------------------------------------------------------------------------
 
 
+@timed("score")
 def match_single_frame(
     gt_frame: dict,
     user_frame: dict,
@@ -259,6 +293,7 @@ def match_single_frame(
     user_velocities = user_frame.get("velocities", {})
     gt_normalized_lms = gt_frame.get("normalized_landmarks")
     user_normalized_lms = user_frame.get("normalized_landmarks")
+    pose_shape_error = _pose_shape_error_xy(gt_normalized_lms, user_normalized_lms)
     has_velocity = bool(gt_velocities and user_velocities)
 
     # ------------------------------------------------------------------
@@ -421,20 +456,30 @@ def match_single_frame(
             pose_observed = len([j for j in active_joints if j in _JOINT_NAMES])
             coverage = pose_observed / len(_JOINT_NAMES) if _JOINT_NAMES else 1.0
 
-        # Primary-joint floor: cap raw_score if any high-weight joint fails badly.
-        # We use the caller-supplied (pre-normalisation) exercise_weights so
-        # joints that each hold ~0.6 raw weight are all treated as "primary"
-        # even though their normalised share is only ~0.33 after dividing by 3.
+        # Primary-joint floor: cap raw_score if any top-weighted joint fails badly.
         if exercise_weights is not None:
+            raw_weight_by_joint = {
+                jn: max(0.0, float(exercise_weights.get(jn, 0.0)))
+                for jn in joint_scores
+            }
+            strongest_weight = max(raw_weight_by_joint.values(), default=0.0)
             primary_scores = [
                 joint_scores[jn] * 100
-                for jn in joint_scores
-                if exercise_weights.get(jn, 0.0) >= 0.5
+                for jn, raw_w in raw_weight_by_joint.items()
+                if raw_w >= max(PRIMARY_JOINT_MIN_WEIGHT, strongest_weight * PRIMARY_JOINT_WEIGHT_RATIO)
             ]
             if primary_scores:
                 worst_primary = min(primary_scores)
                 if worst_primary < PRIMARY_JOINT_SCORE_FLOOR:
                     raw_score = min(raw_score, float(OVERALL_SCORE_CAP_WHEN_PRIMARY_FAILS))
+
+        # Global posture coherence penalty from normalized landmark geometry.
+        # This is exercise-agnostic and helps prevent unrealistically high
+        # scores when the body shape clearly differs from reference.
+        if pose_shape_error is not None:
+            shape_ratio = min(1.0, pose_shape_error / _POSE_SHAPE_ERROR_AT_MAX_PENALTY)
+            shape_factor = max(0.75, 1.0 - 0.25 * (shape_ratio ** 1.2))
+            raw_score *= shape_factor
 
         raw_score *= coverage_factor(coverage)
 
@@ -448,6 +493,8 @@ def match_single_frame(
     result["overall_score"] = round(overall_score, 1)
     result["joint_scores"] = joint_scores
     result["joint_errors"] = joint_errors
+    if pose_shape_error is not None:
+        result["pose_shape_error"] = round(pose_shape_error, 4)
 
     # ------------------------------------------------------------------
     # Symmetry analysis (pose joints only)
